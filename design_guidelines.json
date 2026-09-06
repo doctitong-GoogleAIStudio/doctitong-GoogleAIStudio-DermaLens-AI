@@ -1,0 +1,214 @@
+{
+  "app_name": "AI Dermatologist",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A clinical, trustworthy, and calm medical utility that prioritizes clarity, progressive disclosure, and precision.",
+  "color": {
+    "light": {
+      "surface": "#FCFDFD",
+      "onSurface": "#111814",
+      "surfaceSecondary": "#FFFFFF",
+      "onSurfaceSecondary": "#111814",
+      "surfaceTertiary": "#F0F4F2",
+      "onSurfaceTertiary": "#111814",
+      "surfaceInverse": "#151F19",
+      "onSurfaceInverse": "#FFFFFF",
+      "brand": "#3B6955",
+      "onBrand": "#FFFFFF",
+      "brandPrimary": "#3B6955",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#D1E2D9",
+      "onBrandSecondary": "#1E3B2E",
+      "brandTertiary": "#E6EFEB",
+      "onBrandTertiary": "#264D3B",
+      "success": "#287D4D",
+      "onSuccess": "#FFFFFF",
+      "warning": "#A67C00",
+      "onWarning": "#FFFFFF",
+      "error": "#B83A4B",
+      "onError": "#FFFFFF",
+      "info": "#4A6E7C",
+      "onInfo": "#FFFFFF",
+      "border": "#E3EBE7",
+      "borderStrong": "#B8CCC3",
+      "divider": "#EBF0ED",
+      "muted": "#5C7066"
+    },
+    "dark": {
+      "surface": "#101412",
+      "onSurface": "#E6EFEB",
+      "surfaceSecondary": "#181D1A",
+      "onSurfaceSecondary": "#E6EFEB",
+      "surfaceTertiary": "#212925",
+      "onSurfaceTertiary": "#E6EFEB",
+      "surfaceInverse": "#FFFFFF",
+      "onSurfaceInverse": "#111814",
+      "brand": "#5C947A",
+      "onBrand": "#0A140F",
+      "brandPrimary": "#5C947A",
+      "onBrandPrimary": "#0A140F",
+      "brandSecondary": "#213B2E",
+      "onBrandSecondary": "#A3C7B5",
+      "brandTertiary": "#182B21",
+      "onBrandTertiary": "#C2DFD0",
+      "success": "#40A86E",
+      "onSuccess": "#000000",
+      "warning": "#D4A217",
+      "onWarning": "#000000",
+      "error": "#E05A6B",
+      "onError": "#000000",
+      "info": "#6B9CAE",
+      "onInfo": "#000000",
+      "border": "#2B3831",
+      "borderStrong": "#455C51",
+      "divider": "#202924",
+      "muted": "#8E9E96"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Geist",
+    "monoFontFamily": "Space Grotesk",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Maintain strict, generous vertical rhythm. Use `md` (12) for internal padding of cards, and `xl` (24) to separate major sections. The interface must feel breathable and uncrowded.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use on the bottom tab bar.",
+      "Use on the sticky CTA container at the bottom of the Results screen to maintain context while scrolling.",
+      "Use for the trial countdown banner if floating over content."
+    ],
+    "dont's": [
+      "Never use glass on medical result cards or critical data - clarity beats aesthetics here.",
+      "Never use behind body text or form inputs."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "haptics": {
+    "events": {
+      "capture_photo": "heavy",
+      "switch_tab": "light",
+      "primary_button_press": "medium",
+      "analysis_complete": "success"
+    }
+  },
+  "screens": [
+    {
+      "name": "Auth (Login/Signup)",
+      "purpose": "Secure entry point.",
+      "layout": "Hero image at the top with a vertical gradient scrim fading into `surface`. Clean, clinical input fields (labels above inputs). Primary CTA sticky to the keyboard.",
+      "states": {
+        "loading": "Spinner overlaid on primary CTA.",
+        "empty": "N/A",
+        "error": "Standard inline validation and toasts for auth failures."
+      }
+    },
+    {
+      "name": "Home / History (Tab 1)",
+      "purpose": "Dashboard showing trial status and previous scans.",
+      "layout": "Top banner displays '7-Day Free Trial' with a live minute-by-minute countdown. Below: A list of past analysis cards. Each card shows a small thumbnail, date, and top diagnosis. A large, prominent FAB (Floating Action Button) centered above the tab bar for 'New Scan'.",
+      "states": {
+        "loading": "Skeleton rows representing past scans.",
+        "empty": "Branded illustration or soft texture with text: 'No scans yet. Tap the + button to capture your first skin lesion.'",
+        "error": "Text: 'Unable to load history.' with Retry button."
+      }
+    },
+    {
+      "name": "About (Tab 2)",
+      "purpose": "Information about the app, version, and general medical disclaimers.",
+      "layout": "Standard list view with sections: App Version, Terms of Service, Privacy Policy, and a prominent 'Not Medical Advice' card.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "N/A"
+      }
+    },
+    {
+      "name": "Capture Modal",
+      "purpose": "Camera interface to capture or upload skin lesion.",
+      "layout": "Full-screen camera view (dark UI). A clear rectangular guide frame/viewfinder in the center with corner brackets to indicate the scanning zone. 'Align lesion within the frame' instructional text below it. Large capture ring at the bottom, with a gallery upload icon on the side.",
+      "states": {
+        "loading": "Processing overlay with 'Analyzing Image...' text and spinner.",
+        "empty": "N/A",
+        "error": "Camera permission denied message with CTA to open settings."
+      }
+    },
+    {
+      "name": "Analysis Result",
+      "purpose": "Display AI findings clearly and clinically.",
+      "layout": "Scrollable view. Top: Image thumbnail with a 'Quality Assessment' pill (e.g., 'Quality: Excellent' in green). Below: 'Most Likely Diagnosis' modular card featuring Disease Name, Confidence % (in Mono font), Urgency Badge (Traffic light color-coded: Green/Yellow/Red), and Description. Next: 'Differential Diagnoses' accordion cards. Next: 'Recommended Next Steps' list. Bottom: A prominent Medical Disclaimer card with a warning icon. Sticky footer CTA: 'Share / Download PDF'.",
+      "states": {
+        "loading": "Skeleton cards mimicking the layout.",
+        "empty": "N/A",
+        "error": "Alert: 'Analysis failed.' with Retry button."
+      }
+    },
+    {
+      "name": "Device Activation",
+      "purpose": "Post-trial lock screen for offline activation.",
+      "layout": "Full-screen lockdown modal (no close button). Headline: 'Activate this Device'. Shows the hardware 'Device ID' in a Mono font card with a 'Copy' icon. Below: GCash QR Code image centered. Below QR: Text input for 'Activation Key'. Large 'Activate' primary CTA.",
+      "states": {
+        "loading": "Spinner on Activate button.",
+        "empty": "N/A",
+        "error": "Inline error: 'Invalid activation key'."
+      }
+    }
+  ],
+  "images": {
+    "auth_hero": {
+      "url": "https://images.unsplash.com/photo-1713085085470-fba013d67e65?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTJ8MHwxfHNlYXJjaHwxfHxjbGVhbiUyMGRlcm1hdG9sb2dpc3QlMjBjbGluaWMlMjBhZXN0aGV0aWN8ZW58MHx8fHwxNzg4NjY3OTg4fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1638376776402-9a4b75fe21bb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbWluaW1hbGlzdCUyMHN1YnRsZSUyMG1lZGljYWwlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4ODY2Nzk5OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Clean dermatologist clinic"
+    },
+    "splash_background": {
+      "url": "https://images.pexels.com/photos/2078266/pexels-photo-2078266.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.unsplash.com/photo-1638376776402-9a4b75fe21bb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbWluaW1hbGlzdCUyMHN1YnRsZSUyMG1lZGljYWwlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4ODY2Nzk5OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract calm sage green texture"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use the Sage Green palette defined in the JSON. Never use Indigo, Violet, or Blue. Strict adherence to WCAG AA contrast.",
+    "Implement the layout with Plus Jakarta Sans for titles/display, Geist for body text, and Space Grotesk specifically for numeric data (Confidence %, Trial Countdown, Device ID) to reinforce the clinical, precise feel.",
+    "For the Results screen, use a 'Traffic Light' semantic color system (success/warning/error tokens) to represent the Urgency Badge of the diagnosis, reducing cognitive load.",
+    "The 7-day free trial countdown must be prominently displayed as a live timer (down to the minute) in a floating or sticky banner on the Home tab.",
+    "On the Device Activation screen, present a mock GCash QR code (you can use a placeholder SVG/QR library) and display the Device ID in a copyable card.",
+    "Generate a PDF using `expo-print` or `expo-sharing` containing the diagnosis data when the user taps 'Share / Download PDF' on the Results screen.",
+    "For the History empty state, if you cannot find a suitable illustration, use a large, tinted Phosphor/Ionicons icon encapsulated in a `brandTertiary` rounded square.",
+    "Ensure the Capture Screen uses a dark theme regardless of system setting for better viewfinder contrast, placing a rectangular guide frame overlay on the camera view."
+  ]
+}
