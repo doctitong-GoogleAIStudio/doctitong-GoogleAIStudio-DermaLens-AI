@@ -350,11 +350,16 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--brand);color:#0A140F;
          font-weight:700;font-size:13px;padding:11px 18px;border-radius:99px;opacity:0;transition:opacity .2s;pointer-events:none}
   .toast.on{opacity:1}
+  input.plain{text-transform:none;font-family:inherit;letter-spacing:0;font-size:15px}
+  .item .nm{font-family:inherit;font-size:14px;font-weight:700;color:var(--fg)}
+  .item .did{font-family:monospace;font-size:13px;color:var(--muted);letter-spacing:1px;font-weight:400}
 </style></head>
 <body>
   <div class="card">
     <h1>Offline Activation Generator</h1>
     <p class="sub">Enter the customer's Device ID exactly as shown in their app, then generate the activation key. Works fully offline.</p>
+    <label for="cname">Customer Name <span style="text-transform:none">(optional)</span></label>
+    <input id="cname" class="plain" placeholder="e.g. Juan Dela Cruz" autocomplete="off"/>
     <label for="did">Device ID</label>
     <input id="did" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters"/>
     <div class="err" id="err">Please enter a valid Device ID.</div>
@@ -369,7 +374,7 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
       <h2>Issued Keys Log</h2>
       <p class="cnt" id="cnt">No keys issued yet.</p>
       <div class="row">
-        <input id="q" placeholder="Search device ID or key" autocomplete="off"/>
+        <input id="q" placeholder="Search name, device ID or key" autocomplete="off"/>
         <button id="csv" title="Download CSV">CSV</button>
         <button id="clr" title="Clear the whole log">Clear</button>
       </div>
@@ -407,12 +412,21 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
       document.body.removeChild(ta);
     }
   }
-  function addToLog(did,key){
+  function addToLog(did,key,name){
     var l=readLog();
     var i=l.findIndex(function(e){return e.did===did;});
-    var entry={did:did,key:key,at:new Date().toISOString()};
-    if(i>-1){entry.at=l[i].at;l.splice(i,1);}
+    var entry={did:did,key:key,name:name||'',at:new Date().toISOString()};
+    if(i>-1){entry.at=l[i].at;if(!entry.name)entry.name=l[i].name||'';l.splice(i,1);}
     l.unshift(entry);
+    writeLog(l);
+  }
+  function renameEntry(did){
+    var l=readLog();
+    var i=l.findIndex(function(e){return e.did===did;});
+    if(i<0)return;
+    var v=prompt('Customer name for '+did, l[i].name||'');
+    if(v===null)return;
+    l[i].name=v.trim();
     writeLog(l);
   }
   function fmt(iso){
@@ -422,7 +436,10 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
   }
   function renderLog(){
     var l=readLog(), q=(document.getElementById('q').value||'').trim().toUpperCase();
-    var f=l.filter(function(e){return !q||e.did.indexOf(q)>-1||e.key.indexOf(q)>-1;});
+    var f=l.filter(function(e){
+      if(!q) return true;
+      return e.did.indexOf(q)>-1 || e.key.indexOf(q)>-1 || (e.name||'').toUpperCase().indexOf(q)>-1;
+    });
     document.getElementById('cnt').textContent =
       l.length===0 ? 'No keys issued yet.'
       : l.length+' key'+(l.length===1?'':'s')+' issued'+(q?(' \\u00b7 '+f.length+' matching'):'');
@@ -436,16 +453,21 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
     f.forEach(function(en){
       var it=document.createElement('div');it.className='item';
       var info=document.createElement('div');info.className='info';
+      var n=document.createElement('div');n.className='nm';n.textContent=en.name||'Unnamed customer';
+      if(!en.name) n.style.color='#8E9E96';
       var d=document.createElement('div');d.className='did';d.textContent=en.did;
       var k=document.createElement('div');k.className='kk';k.textContent=en.key;
       var a=document.createElement('div');a.className='at';a.textContent=fmt(en.at);
-      info.appendChild(d);info.appendChild(k);info.appendChild(a);
+      info.appendChild(n);info.appendChild(d);info.appendChild(k);info.appendChild(a);
+      var ed=document.createElement('button');ed.className='act';ed.textContent='Name';
+      ed.title='Set or edit the customer name';
+      ed.onclick=function(){renameEntry(en.did);};
       var cp=document.createElement('button');cp.className='act';cp.textContent='Copy';
       cp.onclick=function(){copy(en.key,'Key copied');};
       var rm=document.createElement('button');rm.className='act';rm.textContent='\\u2715';
       rm.title='Remove from log';
       rm.onclick=function(){writeLog(readLog().filter(function(x){return x.did!==en.did;}));};
-      it.appendChild(info);it.appendChild(cp);it.appendChild(rm);
+      it.appendChild(info);it.appendChild(ed);it.appendChild(cp);it.appendChild(rm);
       box.appendChild(it);
     });
   }
@@ -458,7 +480,7 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
     err.style.display='none';
     var k=makeKey(v);
     keyEl.textContent=k;out.style.display='block';
-    addToLog(v,k);
+    addToLog(v,k,document.getElementById('cname').value.trim());
     copy(k,'Key copied');
   };
   document.getElementById('copyKey').onclick=function(){
@@ -473,8 +495,8 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
   document.getElementById('csv').onclick=function(){
     var l=readLog();
     if(!l.length){toast('Log is empty');return;}
-    var rows=[['Device ID','Activation Key','Issued At']].concat(
-      l.map(function(e){return [e.did,e.key,e.at];}));
+    var rows=[['Customer Name','Device ID','Activation Key','Issued At']].concat(
+      l.map(function(e){return [e.name||'',e.did,e.key,e.at];}));
     var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\\n');
     var a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
