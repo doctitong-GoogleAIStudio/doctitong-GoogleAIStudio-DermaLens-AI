@@ -1,0 +1,23 @@
+{
+  "summary": "Stability confirmation run. Preview is STABLE — no reload loop, no remount, no ReferenceError. Backend health checks (login, me, activation-tool) all return 200. Login screen paints in 0.71s and stays mounted for a full 60s idle; Home screen stays mounted for 60s idle with the trial countdown ticking (07D00H00M00S -> 06D23H59M00S); 3x Home->Capture->Back navigations succeed with no crash, no white screen, and no bundle remount. Console prints 'Running application \"main\"' exactly ONCE for the entire session (initial mount). Only warnings observed are the known-harmless 'shadow*' style deprecation, and a 'Disconnected from Metro (1006)' emitted at browser teardown. The user's original complaint (continuous refreshing) was caused by the ~20 historical `supervisorctl restart expo` calls in earlier iterations forcing the open preview tab to reconnect — that pattern is not reproducible in this run since expo was left untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_5.json"],
+  "action_items": [
+    "None required. Do NOT run `supervisorctl restart expo` during preview review sessions — each restart forces the open preview tab to reconnect/re-bundle, which is exactly what the user perceived as a refresh loop.",
+    "Consider (optional, non-blocking) migrating `shadow*` styles to `boxShadow` to silence the RN Web warning."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None — used existing test1@example.com / secret123.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Preview stability was verified end-to-end on 2026-01. Login screen and Home screen both remain mounted through a 60s idle with the app printing 'Running application \"main\"' exactly once. Trial countdown ticks live (verified 07D00H00M00S -> 06D23H59M00S). 3x round-trip navigation Home<->Capture works without crash/remount. If a future run needs to reproduce a reload loop, DO NOT restart expo/supervisor during the run — each restart forces the preview tab to reconnect and re-bundle. Backend endpoints POST /api/auth/login, GET /api/auth/me, GET /api/activation-tool all return 200. Login testIDs: login-submit / login-error / go-signup exist, but the email/password inputs currently DO NOT have testIDs — use placeholder selectors input[placeholder=\"you@example.com\"] and input[placeholder=\"Your password\"] (working). Home testIDs: trial-banner, header-activate, header-logout, history-refresh, history-empty, new-scan-fab.",
+  "rca_of_issue": "User report: 'preview shows continuous refreshing/loading'. Root cause: prior iterations executed `sudo supervisorctl restart expo` ~20 times (visible in /var/log/supervisor/expo.out.log). Each restart tears down Metro; the browser preview WebSocket to Metro drops and the tab auto-reconnects and re-bundles, which the user perceives as a refresh loop. The historical 'ReferenceError: radius is not defined' crash was already fixed prior to this iteration and did NOT recur (0 occurrences captured across the run). Mitigation: avoid restarting the expo supervisor process during preview review sessions; the app itself has no self-triggered reload — verified by 60s idle on both /login and /(tabs)/ with a single 'Running application \"main\"' log."
+}

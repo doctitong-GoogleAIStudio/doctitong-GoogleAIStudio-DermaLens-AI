@@ -76,6 +76,7 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
     </div>
     ${diffs ? `<h2>Other Possibilities</h2>${diffs}` : ""}
     ${steps ? `<h2>Recommended Next Steps</h2><ul>${steps}</ul>` : ""}
+    ${item.note ? `<h2>Patient Note</h2><div class="card"><p>${esc(item.note)}</p></div>` : ""}
     <h2>Disclaimer</h2>
     <div class="disc">${esc(d.disclaimer || "")}</div>
   </body></html>`;

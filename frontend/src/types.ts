@@ -32,6 +32,7 @@ export interface HistoryItem {
   images: string[]; // persisted local file uris
   thumbnail: string;
   imageInfo: { name: string; resolution: string };
+  note?: string;
   diagnosis: Diagnosis;
 }
 

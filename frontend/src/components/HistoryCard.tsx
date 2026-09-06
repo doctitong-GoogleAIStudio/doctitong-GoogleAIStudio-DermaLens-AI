@@ -53,6 +53,11 @@ export function HistoryCard({ item, onPress, onDelete }: Props) {
           <Text style={styles.cardTitle} numberOfLines={1}>
             {item.diagnosis.mostLikelyDiagnosis.conditionName}
           </Text>
+          {!!item.note && (
+            <Text style={styles.cardNote} numberOfLines={1}>
+              “{item.note}”
+            </Text>
+          )}
           <View style={styles.cardMeta}>
             <View
               style={[styles.dot, { backgroundColor: urgencyToken(colors, item.diagnosis.mostLikelyDiagnosis.urgency) }]}
@@ -81,6 +86,7 @@ const useStyles = makeStyles((colors) => ({
   thumb: { width: 60, height: 60, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
   cardDate: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.muted },
   cardTitle: { fontFamily: fonts.bodySemi, fontSize: fontSize.lg, color: colors.onSurface, marginTop: 2 },
+  cardNote: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.muted, marginTop: 2, fontStyle: "italic" },
   cardMeta: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
   dot: { width: 8, height: 8, borderRadius: 4 },
   cardMetaText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.muted },

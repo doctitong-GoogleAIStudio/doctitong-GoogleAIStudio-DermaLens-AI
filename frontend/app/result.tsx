@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
-import { useHistory } from "@/src/history";
+import { NoteSheet } from "@/src/components/NoteSheet";
+import { useHistory, useSetNote } from "@/src/history";
 import { shareReport } from "@/src/report";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import type { HistoryItem } from "@/src/types";
@@ -34,6 +35,8 @@ export default function Result() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: history = [] } = useHistory();
   const [sharing, setSharing] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const setNote = useSetNote();
 
   const item = useMemo<HistoryItem | undefined>(() => history.find((h) => h.id === id), [history, id]);
 
@@ -147,6 +150,23 @@ export default function Result() {
           </>
         )}
 
+        {/* My note */}
+        <Text style={styles.sectionTitle}>My Note</Text>
+        <Pressable style={styles.noteCard} onPress={() => setNoteOpen(true)} testID="note-card">
+          <Ionicons
+            name={item.note ? "document-text" : "create-outline"}
+            size={20}
+            color={colors.brandPrimary}
+          />
+          <Text
+            style={[styles.noteText, !item.note && { color: colors.muted }]}
+            testID="note-text"
+          >
+            {item.note || "Add a note — e.g. “itchy for 2 weeks”"}
+          </Text>
+          <Text style={styles.noteAction}>{item.note ? "Edit" : "Add"}</Text>
+        </Pressable>
+
         {/* Disclaimer */}
         <View style={styles.disclaimer}>
           <Ionicons name="warning" size={18} color={colors.warning} />
@@ -166,6 +186,16 @@ export default function Result() {
           <Text style={styles.newScanText}>Start New Analysis</Text>
         </Pressable>
       </View>
+
+      <NoteSheet
+        visible={noteOpen}
+        value={item.note}
+        onClose={() => setNoteOpen(false)}
+        onSave={(note) => {
+          setNote.mutate({ id: item.id, note });
+          setNoteOpen(false);
+        }}
+      />
     </View>
   );
 }
@@ -186,6 +216,20 @@ const useStyles = makeStyles((colors) => ({
   emptyText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.muted },
   hero: { width: 160, height: 160, borderRadius: radius.lg, backgroundColor: colors.surfaceTertiary },
   qualityRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.lg },
+  noteCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  noteText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, lineHeight: 20 },
+  noteAction: { fontFamily: fonts.bodySemi, fontSize: fontSize.sm, color: colors.brandPrimary },
   qualityPill: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill },
   qualityPillText: { fontFamily: fonts.bodySemi, fontSize: fontSize.sm, color: "#FFFFFF" },
   resolution: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.muted },
