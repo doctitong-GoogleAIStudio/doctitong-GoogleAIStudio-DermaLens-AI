@@ -1,0 +1,52 @@
+{
+  "summary": "Backend PDF endpoint is FULLY WORKING (8/8 pytest cases pass). Frontend Share/Download PDF now triggers a REAL file download on web (filename 'AiDerma-Seborrheic-Keratosis-2026-01-01.pdf', 4217 bytes, header %PDF-) and window.print() is no longer invoked at all (0 calls). However, 2 of the 4 frontend acceptance checks FAIL: (a) DEBOUNCE FAILS — a rapid double-tap fires TWO POST /api/report/pdf requests (expected 1). The `if (sharing) return` guard in result.tsx does not survive two synchronous clicks in the same JS tick because React state hasn't committed yet — a useRef guard is required. (b) ERROR ALERT DOES NOT APPEAR on web when the request fails (route.abort). No dialog, no DOM copy of 'Could not create the report' — react-native's Alert.alert has no default web implementation in this project, so the failure is silent (though the button DOES return to its normal state). Regression checks all PASS: /api/auth/login=200, /api/auth/me=200, /api/activation-tool=200, Home shows trial-banner (~3.5s reload, never stuck on bootstrap-screen), scan note add/edit persists ('itchy for 2 weeks' saved on refresh), result screen renders fully. NATIVE PDF path (expo-print + expo-sharing) cannot be exercised in the web preview — needs a device build.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "share-pdf-btn (app/result.tsx)",
+        "issue": "Rapid double-tap fires 2 POST /api/report/pdf requests instead of 1. The `if (sharing) return` guard uses React state which has not been committed when the second synchronous onPress fires, so both invocations pass. Use a useRef flag (or React 18 useTransition/startTransition + ref) so the second call short-circuits even in the same tick. Reference: /app/frontend/app/result.tsx:56-70",
+        "testID": "share-pdf-btn",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Alert.alert on web (app/result.tsx onShare catch)",
+        "issue": "When the /api/report/pdf request fails (route aborted in test), NO alert is shown on web — the failure is completely silent to the user. react-native's Alert.alert has no default polyfill on web in this app. The button does correctly return to its non-loading state, but the user gets no feedback. Options: (a) use a cross-platform toast/snackbar, (b) fall back to `window.alert(title + '\\n' + message)` when Platform.OS === 'web', or (c) install/register a react-native-web Alert polyfill. Reference: /app/frontend/app/result.tsx:63-66",
+        "testID": "share-pdf-btn",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "share/download PDF debounce",
+        "issue": "Two /api/report/pdf requests fired on rapid double-tap — wastes server work and can race the download.",
+        "affected_testIDs": ["share-pdf-btn"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_7.json",
+    "/app/backend/tests/test_report_pdf.py",
+    "/app/test_reports/pytest/iteration7_pdf.xml"
+  ],
+  "action_items": [
+    "Fix debounce in app/result.tsx onShare: replace `if (sharing) return` with a useRef guard, e.g. `const busy = useRef(false); if (busy.current) return; busy.current = true; try {...} finally { busy.current = false; setSharing(false); }`.",
+    "Add a web-safe error alert path in app/result.tsx onShare catch: `Platform.OS === 'web' ? window.alert('Could not create the report\\n' + (msg || 'Please try again.')) : Alert.alert(...)`. Or use a shared Toast component so failures are never silent.",
+    "Native PDF path (expo-print + expo-sharing) needs to be verified on a device build — not testable via web preview."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py POST /api/report/pdf correctly sanitises the filename (`re.sub(r'[^A-Za-z0-9._-]', '-', ...)` prevents path traversal and forbidden chars) and ensures a `.pdf` extension. Returns application/pdf with attachment Content-Disposition. Verified with base64-JPEG embedded HTML — outputs a valid multi-KB PDF.",
+    "frontend/src/report.ts reportFilename produces the expected 'AiDerma-<Condition>-<Date>.pdf' pattern (both segments run through /[^A-Za-z0-9]+/g -> '-').",
+    "frontend/src/api.ts reportPdf does NOT use the shared 15s timeout controller, which is fine (PDFs may take longer than 15s for large payloads).",
+    "app/result.tsx onShare debounce is state-based (sharing flag) — insufficient for same-tick double-tap because React state has not yet committed when the second onPress fires."
+  ],
+  "updated_files": ["/app/backend/tests/test_report_pdf.py"],
+  "success_rate": {"backend": "100%", "frontend": "66%"},
+  "seed_data_creation": "Seeded /result?id=test-seed-1 via page.evaluate: `localStorage.setItem('diagnosis_history', JSON.stringify(JSON.stringify([HistoryItem])))`. Double-encoding is required because writeHistory does JSON.stringify(items) then storage.setItem does JSON.stringify again.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The core user-reported bug ('Share/Download PDF does nothing on web') is FIXED: real PDF (bytes start with %PDF-, size ~4KB for small report, up to multi-KB with images) is delivered as a browser download named AiDerma-<Condition>-<Date>.pdf, and window.print() is no longer called. Two follow-up bugs remain and require code fixes: (1) same-tick double-tap fires 2 POST /api/report/pdf calls (state-based debounce is insufficient; use a ref), (2) failed PDF requests on web are silent — react-native Alert.alert doesn't render on web without a polyfill. Backend endpoint POST /api/report/pdf: auth-required, body {html, filename?}, 401 without token, sanitises filename, enforces .pdf, xhtml2pdf renderer handles data-URI base64 JPEGs correctly. All backend regression endpoints (login/me/activation-tool) pass.",
+  "rca_of_issue": "Double-fire RCA: app/result.tsx onShare uses `if (sharing) return; setSharing(true); ...` — when two synchronous clicks happen in the same tick (before React commits state), both closures see sharing=false and both proceed to `await shareReport(item)`, resulting in 2 POST /api/report/pdf requests. Fix: hoist the guard into a useRef so it is imperatively set to true before the awaited work starts. Silent-error RCA: on web, react-native's Alert.alert has no default renderer in this project — the catch block calls `Alert.alert('Could not create the report', ...)` but nothing appears. The user only sees the button return to its idle state with no feedback. Fix: add a Platform.OS==='web' branch that calls window.alert or renders an in-app toast."
+}

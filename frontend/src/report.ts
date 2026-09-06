@@ -4,6 +4,7 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 
 import type { HistoryItem } from "@/src/types";
+import { api } from "@/src/api";
 
 async function imageToDataUri(uri: string): Promise<string | null> {
   try {
@@ -82,12 +83,29 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
   </body></html>`;
 }
 
+function reportFilename(item: HistoryItem): string {
+  const cond = (item.diagnosis?.mostLikelyDiagnosis?.conditionName || "Report").replace(/[^A-Za-z0-9]+/g, "-");
+  const date = item.date.replace(/[^A-Za-z0-9]+/g, "-");
+  return `AiDerma-${cond}-${date}.pdf`;
+}
+
 export async function shareReport(item: HistoryItem): Promise<void> {
   const html = await buildReportHtml(item);
+  const filename = reportFilename(item);
 
-  // Web has no file system to share from — open the browser print/save-as-PDF dialog.
+  // Web: the print dialog is blocked inside the embedded preview frame, so build
+  // a real PDF on the server and hand the browser a download.
   if (Platform.OS === "web") {
-    await Print.printAsync({ html });
+    const blob = await api.reportPdf(html, filename);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
     return;
   }
 

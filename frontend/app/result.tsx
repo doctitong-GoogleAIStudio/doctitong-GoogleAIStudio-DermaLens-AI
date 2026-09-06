@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { View, Text, ScrollView, Pressable, Alert } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { View, Text, ScrollView, Pressable, Alert, Platform } from "react-native";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +35,7 @@ export default function Result() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: history = [] } = useHistory();
   const [sharing, setSharing] = useState(false);
+  const sharingRef = useRef(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const setNote = useSetNote();
 
@@ -54,7 +55,8 @@ export default function Result() {
   const qColor = qualityToken(colors, d.imageQuality.score);
 
   const onShare = async () => {
-    if (sharing) return;
+    if (sharingRef.current) return;
+    sharingRef.current = true;
     setSharing(true);
     try {
       await shareReport(item);
@@ -62,9 +64,13 @@ export default function Result() {
       const msg = String(e?.message ?? "");
       // User dismissing the native share/print sheet is not an error.
       if (!/cancel|dismiss/i.test(msg)) {
-        Alert.alert("Could not create the report", msg || "Please try again.");
+        const title = "Could not create the report";
+        const body = msg || "Please try again.";
+        if (Platform.OS === "web") window.alert(`${title}\n\n${body}`);
+        else Alert.alert(title, body);
       }
     } finally {
+      sharingRef.current = false;
       setSharing(false);
     }
   };

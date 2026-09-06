@@ -34,7 +34,7 @@ function Gate() {
     const onActivate = group === "activate";
     // "/" renders the bootstrap spinner only — authenticated users must be
     // moved off it, otherwise a page refresh leaves them stuck loading.
-    const atRoot = segments.length === 0;
+    const atRoot = (segments as string[]).length === 0;
 
     if (!user) {
       if (!inAuth) router.replace("/(auth)/login");

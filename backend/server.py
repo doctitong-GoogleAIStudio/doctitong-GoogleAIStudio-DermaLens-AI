@@ -1,5 +1,6 @@
 import os
 import re
+import io
 import hmac
 import hashlib
 import json
@@ -12,7 +13,7 @@ import jwt
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -304,6 +305,33 @@ async def request_activation(data: ActivationRequestIn, current_user: PublicUser
             return {"status": "recorded", "emailed": False}
 
     return {"status": "sent", "emailed": bool(EMAIL_KEY and ADMIN_EMAIL)}
+
+class ReportIn(BaseModel):
+    html: str
+    filename: Optional[str] = None
+
+
+@api_router.post("/report/pdf")
+async def report_pdf(data: ReportIn, current_user: PublicUser = Depends(get_current_user)):
+    """Render the analysis report HTML into a real PDF file."""
+    from xhtml2pdf import pisa
+
+    buf = io.BytesIO()
+    result = pisa.CreatePDF(io.StringIO(data.html), dest=buf)
+    if result.err:
+        raise HTTPException(status_code=500, detail="Could not render the PDF report.")
+
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", data.filename or "AiDerma-Report.pdf")
+    if not name.lower().endswith(".pdf"):
+        name = f"{name}.pdf"
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
 
 
 ACTIVATION_TOOL_HTML = """<!DOCTYPE html>

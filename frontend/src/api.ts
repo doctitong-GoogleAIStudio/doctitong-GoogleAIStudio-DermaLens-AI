@@ -72,4 +72,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ device_id }),
     }),
+  /** Renders report HTML into a real PDF on the server and returns the raw bytes. */
+  reportPdf: async (html: string, filename: string): Promise<Blob> => {
+    const token = await storage.secureGet<string>(TOKEN_KEY, "");
+    const res = await fetch(`${API_URL}/report/pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ html, filename }),
+    });
+    if (!res.ok) throw new ApiError(`Could not build the PDF (${res.status})`, res.status);
+    return res.blob();
+  },
 };

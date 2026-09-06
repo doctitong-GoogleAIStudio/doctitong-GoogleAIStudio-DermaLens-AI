@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 7 follow-up fixes VERIFIED — both frontend regressions are resolved. FIX 1 (debounce via useRef): rapid triple-tap on share-pdf-btn fires exactly ONE POST /api/report/pdf and produces exactly ONE download (was 2 in iteration 7). FIX 2 (web error surface): forcing a route-level abort on /api/report/pdf triggers `window.alert('Could not create the report\\n\\nFailed to fetch')` on web, then after unrouting a single tap succeeds again — proving the sharingRef guard resets in `finally`. REGRESSION all green: single-tap download filename = 'AiDerma-Seborrheic-Keratosis-2026-01-01.pdf' (starts with AiDerma-, ends .pdf), window.print never called, result screen renders fully, note add/edit/persist works ('itchy for 2 weeks' survives reload), refresh while logged in lands on Home (testID trial-banner), never stuck on bootstrap-screen. Backend re-run: 8/8 tests pass (test_report_pdf.py) — POST /api/report/pdf 200 with %PDF- (~1.3KB), unauth=401, base64-JPEG PDF renders, filename sanitisation intact, /api/auth/login, /api/auth/me, /api/activation-tool all 200. Native PDF path (expo-print + expo-sharing) not testable in web preview.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_8.json",
+    "/app/backend/tests/test_report_pdf.py",
+    "/app/test_reports/pytest/iteration8_pdf.xml"
+  ],
+  "action_items": [
+    "No follow-up code changes required. Native PDF path (expo-print + expo-sharing) still needs verification on a real device build — not testable via web preview."
+  ],
+  "critical_code_review_comments": [
+    "result.tsx onShare now uses `sharingRef` (useRef<boolean>) — the ref is set to true synchronously before any awaited work, so a second onPress in the same tick short-circuits at line 58 before shareReport() runs. Verified empirically: triple-tap yields 1 POST + 1 download.",
+    "The `finally` block resets both sharingRef.current and setSharing(false), so after any failure (including our simulated route.abort) the button is fully usable again — verified end-to-end.",
+    "Web-only alert branch `Platform.OS === 'web' ? window.alert(...) : Alert.alert(...)` surfaces failures reliably. Native path is code-inspected but not exercised on web preview.",
+    "Cancel/dismiss regex `/cancel|dismiss/i` correctly suppresses user-initiated cancellation errors from the native share sheet without swallowing genuine 'Failed to fetch' errors — validated by seeing the alert on abort."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Two seeds under localStorage['diagnosis_history'] via double-JSON encode (writeHistory JSON.stringify + storage.setItem JSON.stringify): 'test-seed-1' (Seborrheic Keratosis, 2026-01-01) for share/download tests, 'regress-1' (Nevus) for note-persistence test. Auth token from real UI login (test1@example.com / secret123).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 7 bugs (debounce + web-silent-error) are fully closed. Verified matrix on web preview: (a) triple-tap → 1 POST + 1 download; (b) route.abort → window.alert('Could not create the report\\n\\nFailed to fetch'); (c) unroute after failure → next tap downloads correctly (ref guard reset); (d) filename 'AiDerma-<Condition>-<Date>.pdf'; (e) window.print never called (0 invocations across all runs). Backend 8/8 green. If future work touches result.tsx onShare, keep the useRef guard + Platform.OS web branch pattern; if react-native-web ever ships a proper Alert polyfill, the branch can collapse back to Alert.alert. Native PDF (expo-print + expo-sharing) still requires a device build to verify.",
+  "rca_of_issue": "Both iteration-7 defects had textbook fixes and both are now closed:\n  1) Debounce: state-based `if (sharing) return; setSharing(true)` failed because React state is not committed synchronously — the second onPress in the same tick saw sharing=false. Fixed by hoisting the flag into a useRef (`sharingRef.current`) that is set imperatively before the awaited work, then cleared in `finally`. Verified: 3 clicks → 1 POST.\n  2) Silent web error: react-native-web has no Alert.alert renderer here, so the catch block was a no-op on web. Fixed with a Platform.OS === 'web' branch that calls window.alert(`${title}\\n\\n${body}`). Verified: aborting the network call produces a visible browser alert."
+}
