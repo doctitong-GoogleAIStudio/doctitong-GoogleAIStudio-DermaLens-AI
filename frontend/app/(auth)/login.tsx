@@ -9,7 +9,7 @@ import { useRouter } from "expo-router";
 import { Field } from "@/src/components/Field";
 import { Button } from "@/src/components/Button";
 import { useAuth } from "@/src/auth";
-import { makeStyles, useTheme, spacing, fonts, fontSize } from "@/src/theme";
+import { makeStyles, useTheme, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 const HERO = {
   light:
@@ -63,6 +63,7 @@ export default function Login() {
         </View>
 
         <View style={styles.body}>
+          <Image source={require("@/assets/images/app-logo.png")} style={styles.logo} contentFit="contain" />
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in to continue your skin analysis</Text>
 
@@ -116,6 +117,7 @@ const useStyles = makeStyles((colors) => ({
   heroImg: { width: "100%", height: "100%" },
   scrim: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0 },
   body: { paddingHorizontal: spacing.xl, marginTop: -40 },
+  logo: { width: 96, height: 96, borderRadius: radius.lg, marginBottom: spacing.md },
   title: { fontFamily: fonts.display, fontSize: fontSize["3xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.muted, marginTop: spacing.xs },
   error: { color: colors.error, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, marginTop: spacing.xs },
