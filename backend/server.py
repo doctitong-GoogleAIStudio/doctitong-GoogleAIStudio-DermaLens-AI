@@ -43,7 +43,10 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "AI Dermatologist")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
-ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET", "")
+# Must stay in sync with ACTIVATION_SECRET in frontend/src/device.ts.
+# The fallback guarantees the offline generator keeps producing valid keys even if
+# the env var is not present in the deployed environment.
+ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET") or "DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=True)
@@ -364,11 +367,16 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
 @api_router.get("/activation-tool", response_class=HTMLResponse)
 async def activation_tool():
     """Offline activation key generator (single downloadable HTML file for the admin)."""
-    sha_path = ROOT_DIR.parent / "frontend" / "node_modules" / "js-sha256" / "build" / "sha256.min.js"
-    try:
-        sha_src = sha_path.read_text()
-    except Exception:
-        sha_src = ""
+    sha_src = ""
+    for sha_path in (
+        ROOT_DIR / "static" / "sha256.min.js",
+        ROOT_DIR.parent / "frontend" / "node_modules" / "js-sha256" / "build" / "sha256.min.js",
+    ):
+        try:
+            sha_src = sha_path.read_text()
+            break
+        except Exception:
+            continue
     html = ACTIVATION_TOOL_HTML.replace("/*__SHA256__*/", sha_src).replace("__SECRET__", ACTIVATION_SECRET)
     return HTMLResponse(content=html)
 
