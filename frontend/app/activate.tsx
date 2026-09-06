@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import QRCode from "react-native-qrcode-svg";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
@@ -109,8 +108,16 @@ export default function Activate() {
             <Text style={styles.label}>Pay via GCash</Text>
             <View style={styles.qrCard}>
               <View style={styles.qrBox}>
-                <QRCode value={`gcash-payment:${deviceId || "device"}`} size={150} backgroundColor="#FFFFFF" color="#111814" />
+                <Image
+                  source={require("@/assets/images/gcash-qr.png")}
+                  style={styles.qrImage}
+                  resizeMode="contain"
+                  accessibilityLabel="GCash QR code"
+                />
               </View>
+              <Text style={styles.qrFees}>Transfer fees may apply.</Text>
+              <Text style={styles.qrName}>AiDerma</Text>
+              <Text style={styles.qrAmount}>₱ 1,500.00</Text>
               <Text style={styles.qrHint}>Scan to pay, then send your Device ID for your activation key.</Text>
             </View>
 
@@ -199,6 +206,10 @@ const useStyles = makeStyles((colors) => ({
     marginHorizontal: spacing.xl,
   },
   qrBox: { backgroundColor: "#FFFFFF", padding: spacing.md, borderRadius: radius.md },
+  qrImage: { width: 190, height: 190 },
+  qrFees: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.muted, textAlign: "center", marginTop: spacing.md },
+  qrName: { fontFamily: fonts.displaySemi, fontSize: fontSize.xl, color: colors.brandPrimary, textAlign: "center", marginTop: spacing.sm },
+  qrAmount: { fontFamily: fonts.displaySemi, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center", marginTop: spacing.xs },
   qrHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.muted, textAlign: "center", marginTop: spacing.md, lineHeight: 18 },
   requestBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.md, marginHorizontal: spacing.xl, paddingVertical: spacing.md },
   requestText: { fontFamily: fonts.bodySemi, fontSize: fontSize.base, color: colors.brandPrimary, textAlign: "center" },
