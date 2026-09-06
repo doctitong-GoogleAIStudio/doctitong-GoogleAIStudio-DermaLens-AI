@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, Alert } from "react-native";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,8 +54,12 @@ export default function Result() {
     setSharing(true);
     try {
       await shareReport(item);
-    } catch {
-      // ignore share cancel/errors
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      // User dismissing the native share/print sheet is not an error.
+      if (!/cancel|dismiss/i.test(msg)) {
+        Alert.alert("Could not create the report", msg || "Please try again.");
+      }
     } finally {
       setSharing(false);
     }

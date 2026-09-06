@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
@@ -82,9 +83,21 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
 
 export async function shareReport(item: HistoryItem): Promise<void> {
   const html = await buildReportHtml(item);
-  const { uri } = await Print.printToFileAsync({ html });
-  const canShare = await Sharing.isAvailableAsync();
-  if (canShare) {
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Share Analysis Report", UTI: "com.adobe.pdf" });
+
+  // Web has no file system to share from — open the browser print/save-as-PDF dialog.
+  if (Platform.OS === "web") {
+    await Print.printAsync({ html });
+    return;
   }
+
+  const { uri } = await Print.printToFileAsync({ html });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Share Analysis Report",
+      UTI: "com.adobe.pdf",
+    });
+    return;
+  }
+  await Print.printAsync({ uri });
 }

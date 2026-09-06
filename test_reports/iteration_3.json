@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 3 focused on verifying the Share/Download PDF bug fix on /result plus regressions. Backend: 3/3 pytest (POST /api/auth/login 200 [returns access_token+user], GET /api/auth/me 200 with Bearer, GET /api/activation-tool 200 text/html). Frontend (mobile 390x844, web preview via Metro): (1) Seeded diagnosis_history in localStorage as double-encoded JSON (JSON.stringify(JSON.stringify([item]))) matching AsyncStorage-web + history.ts encoding chain; (2) /result?id=seed-hist-3 fully renders — header 'Analysis Result', image, quality pill 'Quality: Good' + '1024x1024', 'Most Likely Diagnosis' card with 'Seborrheic Keratosis' + Routine urgency + '78%' confidence, 'Other Possibilities' with Melanocytic Nevus 15%, 'Recommended Next Steps' bullets, disclaimer, and both bottom buttons (share-pdf-btn + new-analysis-btn) plus result-back are visible; (3) BUG FIX VERIFIED — with window.print stubbed BEFORE the click, tapping share-pdf-btn invokes window.print exactly ONCE (Print.printAsync({html}) on web path in /app/frontend/src/report.ts:88-91), console logs '[stub] window.print called', no unhandled errors, no Alert (expected: print succeeded so no error path), and the previous silent no-op is GONE; (4) buildReportHtml content correctness — code review of /app/frontend/src/report.ts:32-82 confirms the produced HTML embeds 'AI Dermatologist' title, item.date, image data-URIs, imageQuality score/feedback, mostLikelyDiagnosis.conditionName/confidence/description/urgency/urgencyReason, differential diagnoses, nextSteps, and disclaimer — all escaped with esc(); (5) Regressions: history-item-seed-hist-3 renders on Home after remount, history-refresh testID is present on RefreshControl, and history-delete-seed-hist-3 is mounted (hidden until swipe) — matching iteration 2 baseline. NATIVE PATH NOT EXERCISED (cannot on web preview): Print.printToFileAsync + Sharing.shareAsync flow at report.ts:93-102 was code-reviewed only — logic is correct (writes PDF then tries Sharing.isAvailableAsync, falls back to Print.printAsync({uri}) if not) and should be validated on a device build.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3_regression.py",
+    "/app/test_reports/pytest/iteration3_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "shareReport web path uses Print.printAsync({html}) which on RN-web injects a hidden iframe and calls contentWindow.print(). This works but on some browsers the print dialog only opens if the tab is user-focused; test env confirmed window.print was invoked (stub counter = 1). No functional issue.",
+    "result.tsx onShare correctly ignores cancel/dismiss error messages via /cancel|dismiss/i.test(msg) — good UX. Consider also matching 'aborted' since some browsers throw AbortError on print cancel; low priority.",
+    "report.ts imports expo-file-system/legacy — this is fine for now but flagged as an eventual migration target; not a bug.",
+    "Native path (report.ts:93-102) cannot be exercised on the web preview. Recommend physical device or Expo dev-client build to confirm the PDF share sheet actually appears on iOS/Android."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3_regression.py (new — 3 endpoint regression: login/me/activation-tool)"
+  ],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (share-fix verified + all regressions pass)"},
+  "seed_data_creation": "One HistoryItem id='seed-hist-3' (Seborrheic Keratosis, Routine urgency) seeded into localStorage['diagnosis_history'] and localStorage['@AsyncStorage:diagnosis_history'] as JSON.stringify(JSON.stringify([item])). Auth token from POST /api/auth/login also seeded into localStorage under multiple candidate keys to keep the Home route past the auth gate.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "1) Backend login response shape is {access_token, token_type, user} — NOT {token, user}. Adjust tests accordingly. 2) The share-fix on web is verifiable by stubbing window.print BEFORE tapping share-pdf-btn and asserting the stub was invoked ≥ 1 — expo-print's RN-web implementation ultimately calls window.print (or iframe.contentWindow.print). 3) Native share/print (Print.printToFileAsync + Sharing.shareAsync) cannot run on the web preview — only static code review is possible in this env. 4) The result screen still needs history to be seeded WITH the double-encoding trick before /result?id=<id> is opened (React Query queryFn=readHistory reads localStorage each mount). 5) All regression testIDs remain: share-pdf-btn, new-analysis-btn, result-back, history-refresh, history-item-<id>, history-delete-<id>.",
+  "rca_of_issue": "Original bug: On web, /app/frontend/src/report.ts previously called Print.printToFileAsync + Sharing.shareAsync unconditionally. printToFileAsync is native-only (no-op / throws on RN-web) and Sharing.isAvailableAsync() returns false on web, so the button appeared to do nothing and result.tsx's catch swallowed the error. Fix (verified in this iteration): report.ts now branches on Platform.OS === 'web' and calls Print.printAsync({ html }) which opens the browser's print / save-as-PDF dialog via window.print, and result.tsx surfaces genuine failures via Alert. Verification method: stub window.print, tap share-pdf-btn, assert stub was invoked (1 call observed) and no unhandled promise rejections."
+}
