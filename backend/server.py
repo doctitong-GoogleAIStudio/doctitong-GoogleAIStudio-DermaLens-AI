@@ -252,7 +252,7 @@ async def analyze(data: AnalyzeIn, current_user: PublicUser = Depends(get_curren
 # ---------------------------------------------------------------------------
 # Device activation
 # ---------------------------------------------------------------------------
-def _activation_email_html(full_name: str, email: str, device_id: str, key: str) -> str:
+def _activation_email_html(full_name: str, email: str, device_id: str) -> str:
     from html import escape
     return (
         '<table role="presentation" width="100%" style="font-family:Arial,sans-serif;color:#111814">'
@@ -263,11 +263,9 @@ def _activation_email_html(full_name: str, email: str, device_id: str, key: str)
         f'<tr><td style="padding:8px 0;color:#5C7066">Name</td><td style="padding:8px 0"><strong>{escape(full_name)}</strong></td></tr>'
         f'<tr><td style="padding:8px 0;color:#5C7066">Account email</td><td style="padding:8px 0"><strong>{escape(email)}</strong></td></tr>'
         f'<tr><td style="padding:8px 0;color:#5C7066">Device ID</td><td style="padding:8px 0;font-family:monospace"><strong>{escape(device_id)}</strong></td></tr>'
-        f'<tr><td style="padding:8px 0;color:#5C7066">Activation key</td><td style="padding:8px 0;font-family:monospace"><strong>{escape(key)}</strong></td></tr>'
         '</table>'
-        '<p style="margin:16px 0 0;font-size:13px;color:#5C7066">After payment is confirmed via GCash, send the '
-        'activation key above to the user. You can also regenerate it any time using the offline activation '
-        'generator tool.</p>'
+        '<p style="margin:16px 0 0;font-size:13px;color:#5C7066">After payment is confirmed via GCash, generate the '
+        'activation key for this Device ID using the offline activation generator tool and send it to the user.</p>'
         f'<p style="font-size:12px;color:#8E9E96;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. '
         'We never ask for your password or card details by email.</p>'
         '</td></tr></table>'
@@ -277,14 +275,12 @@ def _activation_email_html(full_name: str, email: str, device_id: str, key: str)
 @api_router.post("/device/request-activation")
 async def request_activation(data: ActivationRequestIn, current_user: PublicUser = Depends(get_current_user)):
     device_id = data.device_id.strip().upper()
-    key = make_activation_key(device_id)
 
     await db.activation_requests.insert_one({
         "user_id": current_user.id,
         "full_name": current_user.full_name,
         "email": current_user.email,
         "device_id": device_id,
-        "activation_key": key,
         "created_at": datetime.now(timezone.utc),
     })
 
@@ -292,7 +288,7 @@ async def request_activation(data: ActivationRequestIn, current_user: PublicUser
         payload = {
             "to": [ADMIN_EMAIL],
             "subject": f"Device activation request \u2014 {current_user.full_name}",
-            "html": _activation_email_html(current_user.full_name, current_user.email, device_id, key),
+            "html": _activation_email_html(current_user.full_name, current_user.email, device_id),
             "from_name": EMAIL_FROM_NAME,
         }
         try:
@@ -305,6 +301,41 @@ async def request_activation(data: ActivationRequestIn, current_user: PublicUser
             return {"status": "recorded", "emailed": False}
 
     return {"status": "sent", "emailed": bool(EMAIL_KEY and ADMIN_EMAIL)}
+
+
+class DeviceActivateIn(BaseModel):
+    device_id: str
+    key: str
+
+
+@api_router.post("/device/activate")
+async def device_activate(data: DeviceActivateIn, current_user: PublicUser = Depends(get_current_user)):
+    """Records a device as permanently activated so it survives reinstall/logout."""
+    device_id = data.device_id.strip().upper()
+    supplied = data.key.strip().upper().replace(" ", "")
+    if not hmac.compare_digest(supplied, make_activation_key(device_id)):
+        raise HTTPException(status_code=400, detail="Invalid activation key for this device.")
+
+    await db.activated_devices.update_one(
+        {"device_id": device_id},
+        {
+            "$set": {"device_id": device_id, "last_seen_at": datetime.now(timezone.utc)},
+            "$setOnInsert": {
+                "activated_at": datetime.now(timezone.utc),
+                "activated_by_email": current_user.email,
+                "activated_by_name": current_user.full_name,
+            },
+        },
+        upsert=True,
+    )
+    return {"activated": True}
+
+
+@api_router.get("/device/status")
+async def device_status(device_id: str, current_user: PublicUser = Depends(get_current_user)):
+    doc = await db.activated_devices.find_one({"device_id": device_id.strip().upper()})
+    return {"activated": bool(doc)}
+
 
 class ReportIn(BaseModel):
     html: str

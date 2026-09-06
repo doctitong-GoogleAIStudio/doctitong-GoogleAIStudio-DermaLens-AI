@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 9 device-activation persistence VERIFIED end-to-end. Backend (7/7 pytest): (a) GET /api/device/status is 401 without token, {activated:false} for a random id, (b) POST /api/device/activate returns 400 with 'Invalid activation key for this device.' on wrong key and 200 {activated:true} on the HMAC-correct key, then GET status returns {activated:true}; repeat activate call is idempotent (activated_at unchanged), (c) POST /api/device/request-activation stores a Mongo doc with NO 'activation_key' field and the computed key value never appears anywhere in the document; _activation_email_html('Test User','test1@example.com',DEVICE) contains the Device ID + name + email but NOT the computed key. Frontend (all pass on mobile 390x844 web preview): login test1@example.com / secret123 → /activate → captured device id 19F9-28A2-4CBB / 900E-22E6-FAAC / 504D-C780-D49B across runs, wrong key surfaced exact 'Invalid activation key for this device.' with no celebration, correct key triggered celebration + Home banner 'Device Activated / Full access unlocked' with NO 7-Day Free Trial countdown. Persistence: (i) logout + re-login → still Device Activated (trial banner absent). (ii) reinstall simulation (localStorage.clear() + sessionStorage.clear() with raw_device_fallback re-seeded) → after re-login, Device Activated banner restored (server GET /api/device/status returned activated:true). (iii) With route('**/api/device/status', abort) active, reload + re-login still shows Device Activated (local flag wins, no crash). (iv) Refresh while logged in never stuck on testID bootstrap-screen. No mocked APIs. All Expo/React-Native checks green (testIDs present on every interactive control; no deprecated expo-av/expo-barcode-scanner/expo-background-fetch usage found in device/trial/activate/api).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_9.json",
+    "/app/backend/tests/test_iteration9_device_activation.py",
+    "/app/test_reports/pytest/iteration9_device_activation.xml"
+  ],
+  "action_items": [
+    "No follow-up required — feature implementation matches all requirements including 'no key in email' (requirement 2) and 'stays activated across logout / reinstall' (requirement 1)."
+  ],
+  "critical_code_review_comments": [
+    "server.py POST /api/device/activate uses hmac.compare_digest against make_activation_key(device_id) — timing-safe and correct. Mongo upsert with $setOnInsert(activated_at, activated_by_*) + $set(last_seen_at) guarantees idempotency; second activate call keeps activated_at intact (verified in pytest).",
+    "server.py POST /api/device/request-activation inserts only {user_id, full_name, email, device_id, created_at} — no activation_key field. _activation_email_html renders the Device ID / name / email but never calls make_activation_key, so the admin still needs the offline generator to produce a key. Verified via direct import and string-search.",
+    "trial.tsx server-sync effect: if local flag already true, it re-registers with computeActivationKey(deviceId) so a device activated before this feature existed lands in the server table on the next login. Wrapped in try/catch so offline still works — confirmed by aborting /api/device/status and seeing the app stay activated.",
+    "trial.tsx logout does NOT clear device_activated storage key — only the auth token, matching requirement 1. auth.tsx signOut only clears TOKEN_KEY.",
+    "device.ts formatDeviceId + computeActivationKey are pure sha256/HMAC-sha256 slices identical to make_activation_key in server.py and to /*__SHA256__*/ in the offline generator — three implementations stay in sync via the shared ACTIVATION_SECRET constant.",
+    "Minor: multiple copies of the header row render 'header-logout' / 'header-activate' testIDs (Playwright saw 4 hits). Not a functional bug but strict testID selectors need .first / visibility filter — did not require code changes."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None persisted — the pytest suite cleans up its own activation_requests and activated_devices docs (uses uuid-based TST* device ids) so it can rerun cleanly.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 9 fully green. Key invariants to preserve on future work: (a) HMAC secret + slicing MUST stay identical across backend/server.py::make_activation_key, frontend/src/device.ts::computeActivationKey, and the offline generator injected into ACTIVATION_TOOL_HTML — Python/JS both use HMAC-SHA256, hex, first 16 chars uppercase, grouped 4-4-4-4. (b) POST /api/device/activate must remain idempotent via $setOnInsert(activated_at). (c) Requirement 2 forbids the activation key from touching the request-activation email OR the activation_requests Mongo doc — /app/backend/tests/test_iteration9_device_activation.py has explicit string-search assertions that will catch a regression. (d) trial.tsx sync effect must never clear the local device_activated flag on server error — that's what makes offline usable. Repro credentials: test1@example.com / secret123. To compute a key locally: python3 -c \"import hmac,hashlib;s=hmac.new(b'DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns',b'<DEVICE_ID>',hashlib.sha256).hexdigest()[:16].upper();print('-'.join(s[i:i+4] for i in range(0,16,4)))\".",
+  "rca_of_issue": "N/A — no defect found. Implementation matches both new requirements exactly."
+}

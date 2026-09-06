@@ -3,7 +3,8 @@ import { AppState } from "react-native";
 
 import { api } from "@/src/api";
 import { storage } from "@/src/utils/storage";
-import { resolveDeviceId, validateActivationKey } from "@/src/device";
+import { useAuth } from "@/src/auth";
+import { resolveDeviceId, validateActivationKey, computeActivationKey } from "@/src/device";
 
 export const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -25,6 +26,7 @@ interface TrialContextValue {
 const TrialContext = createContext<TrialContextValue | undefined>(undefined);
 
 export function TrialProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [ready, setReady] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [trialStartMs, setTrialStartMs] = useState(0);
@@ -62,12 +64,42 @@ export function TrialProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Activation lives on the server too, keyed by Device ID, so a reinstall or a
+  // different account on the same phone stays activated.
+  useEffect(() => {
+    if (!user || !deviceId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (activated) {
+          // Make sure a device activated before this sync existed is registered.
+          await api.deviceActivate(deviceId, computeActivationKey(deviceId));
+          return;
+        }
+        const res = await api.deviceStatus(deviceId);
+        if (cancelled || !res.activated) return;
+        await storage.setItem(ACTIVATED_KEY, true);
+        setActivated(true);
+      } catch {
+        // Offline or server unreachable — the local flag still applies.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, deviceId, activated]);
+
   const activate = useCallback(
     async (key: string) => {
       if (!deviceId) return false;
       if (validateActivationKey(deviceId, key)) {
         await storage.setItem(ACTIVATED_KEY, true);
         setActivated(true);
+        try {
+          await api.deviceActivate(deviceId, key);
+        } catch {
+          // Recorded locally; the sync effect will retry on the next launch.
+        }
         return true;
       }
       return false;

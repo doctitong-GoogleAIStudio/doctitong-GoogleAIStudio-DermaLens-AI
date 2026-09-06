@@ -72,6 +72,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ device_id }),
     }),
+  /** Records this device as activated server-side so it survives reinstall/logout. */
+  deviceActivate: (device_id: string, key: string) =>
+    request<{ activated: boolean }>("/device/activate", {
+      method: "POST",
+      body: JSON.stringify({ device_id, key }),
+    }),
+  deviceStatus: (device_id: string) =>
+    request<{ activated: boolean }>(`/device/status?device_id=${encodeURIComponent(device_id)}`),
   /** Renders report HTML into a real PDF on the server and returns the raw bytes. */
   reportPdf: async (html: string, filename: string): Promise<Blob> => {
     const token = await storage.secureGet<string>(TOKEN_KEY, "");
