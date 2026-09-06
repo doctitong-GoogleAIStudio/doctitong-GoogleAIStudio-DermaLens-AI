@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 2 testing (frontend UI + 4-endpoint backend regression). Backend: 5/5 pytest cases pass (login test1@example.com/secret123 200, /auth/me 200, /device/request-activation 200, /activation-tool 200 with sha256 lib + embedded ACTIVATION_SECRET, key parity confirmed: 1FE4-820B-D0DF -> 96CD-C305-CAED-0551). Frontend (mobile viewport 390x844): (1) Login works and lands on Home with 'Hi, Test' header; (2) history-refresh testID is present on the FlatList RefreshControl and does not crash; (3) Seeded a HistoryItem into diagnosis_history via localStorage (double JSON.stringify to match storage layer), after router.replace remount the history-item-seed-hist-1 card renders with 'Recent Analyses / Swipe a scan left to delete it. Pull down to refresh.' subtitle; (4) Swipe-left (pointer-events dispatch) reveals red Delete action testID=history-delete-seed-hist-1 — tapping it removes the card, localStorage.diagnosis_history becomes '[]', and navigating away via router.replace and coming back shows the empty state, confirming persistence; (5) Activation: read Device ID from device-id-card, computed HMAC-SHA256 key with ACTIVATION_SECRET, submitting an INVALID key shows 'Invalid activation key for this device.' error and NO celebration; submitting the VALID key opens the full-screen activation-celebration overlay with celebration-name='Welcome, Test!' (correct first name from user full_name), tapping celebration-continue navigates to Home where the trial-banner reads 'Device Activated / Full access unlocked'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2_regression.py",
+    "/app/test_reports/pytest/iteration2_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "HistoryCard uses ReanimatedSwipeable from react-native-gesture-handler which works on web (verified with pointer-event dispatch). Playwright's mouse.down/move/up occasionally triggers Pressable onPress instead of the pan gesture, so tests need to dispatch synthetic pointerdown/move/up events. This is a test-environment limitation, not a product bug — real touch on device is unaffected.",
+    "React Query cache is not invalidated when localStorage.diagnosis_history is mutated externally; the query only re-reads on component remount or explicit refetch. Users only mutate via the app's own mutations (which invalidate correctly), so this is not user-facing. Just a note for testing.",
+    "server.py still 400 lines; no new backend code added this iteration so scope is unchanged from iteration 1."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2_regression.py (new — 5-test regression suite for the 4 endpoints listed in the review request)"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (all 5 UI flows in review request)"},
+  "seed_data_creation": "One HistoryItem (id='seed-hist-1', condition='Seborrheic Keratosis', urgency='Routine') is seeded into localStorage['diagnosis_history'] as JSON.stringify(JSON.stringify([item])) to match the AsyncStorage-web + history.ts double-encoding chain. Cleaned up by the delete flow itself.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "1) EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL) is the env var in /app/frontend/.env. 2) test1@example.com / secret123 already exists in Mongo and full_name='Test User' so celebration-name renders 'Welcome, Test!'. 3) To seed history for swipe-delete testing, write to localStorage['diagnosis_history'] = JSON.stringify(JSON.stringify([HistoryItem])); the app only picks it up after a full screen remount (router.replace to '/(tabs)'), not on router.back() or tab-bar navigation, because React Query keeps its cached [] until refetch. 4) Playwright mouse.down/move/up on ReanimatedSwipeable often registers as a tap and opens /result — use page.evaluate to dispatch synthetic PointerEvent (pointerdown/pointermove/pointerup with pointerType='touch') directly on the [data-testid=\"history-item-...\"] element for reliable swipes. 5) After router.replace, multiple copies of the tab layout exist in the DOM — always use .last locator on Home widgets (history-item, header-activate, trial-banner, new-scan-fab) and iterate is_visible() to find the active one. 6) activate.tsx Continue button (post-activation) has testID='activated-continue' and also does router.replace to home, which is a convenient way to remount Home for state verification.",
+  "rca_of_issue": "N/A — all iteration 2 features work correctly. No regression detected in iteration 1 endpoints."
+}

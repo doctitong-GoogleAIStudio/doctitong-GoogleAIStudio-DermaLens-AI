@@ -1,21 +1,15 @@
-import { View, Text, FlatList, Pressable } from "react-native";
-import { Image } from "expo-image";
+import { useState, useCallback } from "react";
+import { View, Text, FlatList, Pressable, RefreshControl } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
-import { useTrial, formatCountdown, TRIAL_MS } from "@/src/trial";
+import { useTrial, formatCountdown } from "@/src/trial";
 import { useAuth } from "@/src/auth";
-import { useHistory } from "@/src/history";
+import { useHistory, useDeleteHistory } from "@/src/history";
+import { HistoryCard } from "@/src/components/HistoryCard";
 import type { HistoryItem } from "@/src/types";
-
-function urgencyToken(colors: any, urgency: string) {
-  const u = (urgency || "").toLowerCase();
-  if (u.includes("urgent")) return colors.error;
-  if (u.includes("prompt")) return colors.warning;
-  return colors.success;
-}
 
 function TrialBanner() {
   const styles = useStyles();
@@ -80,27 +74,22 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { data: history = [], isLoading } = useHistory();
+  const { data: history = [], isLoading, refetch } = useHistory();
+  const deleteItem = useDeleteHistory();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
 
   const renderItem = ({ item }: { item: HistoryItem }) => (
-    <Pressable
-      style={styles.card}
+    <HistoryCard
+      item={item}
       onPress={() => router.push({ pathname: "/result", params: { id: item.id } })}
-      testID={`history-item-${item.id}`}
-    >
-      <Image source={{ uri: item.thumbnail }} style={styles.thumb} contentFit="cover" />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.cardDate}>{item.date}</Text>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {item.diagnosis.mostLikelyDiagnosis.conditionName}
-        </Text>
-        <View style={styles.cardMeta}>
-          <View style={[styles.dot, { backgroundColor: urgencyToken(colors, item.diagnosis.mostLikelyDiagnosis.urgency) }]} />
-          <Text style={styles.cardMetaText}>{item.diagnosis.mostLikelyDiagnosis.urgency}</Text>
-        </View>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={colors.muted} />
-    </Pressable>
+      onDelete={() => deleteItem.mutate(item.id)}
+    />
   );
 
   return (
@@ -132,8 +121,22 @@ export default function Home() {
         renderItem={renderItem}
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: 140 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.brandPrimary}
+            colors={[colors.brandPrimary]}
+            testID="history-refresh"
+          />
+        }
         ListHeaderComponent={
-          history.length > 0 ? <Text style={styles.sectionTitle}>Recent Analyses</Text> : null
+          history.length > 0 ? (
+            <View>
+              <Text style={styles.sectionTitle}>Recent Analyses</Text>
+              <Text style={styles.sectionHint}>Swipe a scan left to delete it. Pull down to refresh.</Text>
+            </View>
+          ) : null
         }
         ListEmptyComponent={
           !isLoading ? (
@@ -208,25 +211,14 @@ const useStyles = makeStyles((colors) => ({
     fontFamily: fonts.displaySemi,
     fontSize: fontSize.lg,
     color: colors.onSurface,
+  },
+  sectionHint: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    marginTop: 2,
     marginBottom: spacing.md,
   },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  thumb: { width: 60, height: 60, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-  cardDate: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.muted },
-  cardTitle: { fontFamily: fonts.bodySemi, fontSize: fontSize.lg, color: colors.onSurface, marginTop: 2 },
-  cardMeta: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  cardMetaText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.muted },
   empty: { alignItems: "center", paddingTop: spacing["3xl"], paddingHorizontal: spacing.xl },
   emptyIcon: {
     width: 96,

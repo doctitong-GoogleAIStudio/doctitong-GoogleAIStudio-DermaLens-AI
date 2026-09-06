@@ -9,6 +9,8 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
 import { Field } from "@/src/components/Field";
+import { ActivationCelebration } from "@/src/components/ActivationCelebration";
+import { useAuth } from "@/src/auth";
 import { useTrial } from "@/src/trial";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
@@ -18,6 +20,9 @@ export default function Activate() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { deviceId, activated, expired, activate, requestActivation } = useTrial();
+  const { user } = useAuth();
+
+  const [celebrate, setCelebrate] = useState(false);
 
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +50,7 @@ export default function Activate() {
     setLoading(false);
     if (ok) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/(tabs)");
+      setCelebrate(true);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError("Invalid activation key for this device.");
@@ -168,6 +173,10 @@ export default function Activate() {
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
           <Button label="Continue" onPress={() => router.replace("/(tabs)")} testID="activated-continue" />
         </View>
+      )}
+
+      {celebrate && (
+        <ActivationCelebration name={user?.full_name ?? ""} onContinue={() => router.replace("/(tabs)")} />
       )}
     </View>
   );

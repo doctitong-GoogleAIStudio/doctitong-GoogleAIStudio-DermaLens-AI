@@ -325,8 +325,31 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
          padding:15px;font-size:16px;font-weight:700;cursor:pointer}
   .out{margin-top:20px;background:#212925;border:1px dashed var(--brand);border-radius:12px;padding:18px;text-align:center;display:none}
   .out .k{font-family:monospace;font-size:22px;letter-spacing:3px;color:var(--brand);font-weight:700}
-  .out small{color:var(--muted);display:block;margin-top:6px}
+  .out small{color:var(--muted);display:block;margin-top:10px}
+  .copybtn{width:auto;margin-top:14px;padding:11px 20px;font-size:14px;border-radius:99px;
+           background:#2B3831;color:var(--fg);border:1px solid var(--brand);cursor:pointer;font-weight:700}
+  .copybtn:hover{background:var(--brand);color:#0A140F}
   .err{color:#E05A6B;font-size:13px;margin-top:10px;display:none}
+  .logsec{margin-top:28px;border-top:1px solid var(--border);padding-top:20px}
+  .logsec h2{font-size:15px;margin:0 0 2px}
+  .logsec .cnt{color:var(--muted);font-size:12px;margin:0 0 12px}
+  .row{display:flex;gap:8px}
+  .row input{flex:1;text-transform:none;font-family:inherit;letter-spacing:0;font-size:14px;padding:11px}
+  .row button{margin-top:0;width:auto;padding:11px 14px;font-size:13px;background:#2B3831;color:var(--fg)}
+  .log{margin-top:14px;max-height:300px;overflow:auto}
+  .item{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--border);
+        border-radius:12px;margin-bottom:8px;background:#1E2521}
+  .item .info{flex:1;min-width:0}
+  .item .did{font-family:monospace;font-size:14px;font-weight:700;letter-spacing:1px}
+  .item .kk{font-family:monospace;font-size:13px;color:var(--brand);letter-spacing:1px}
+  .item .at{color:var(--muted);font-size:11px;margin-top:2px}
+  .item .act{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;
+              padding:7px 9px;font-size:12px;cursor:pointer;width:auto;margin:0}
+  .item .act:hover{color:var(--fg)}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:18px 0}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--brand);color:#0A140F;
+         font-weight:700;font-size:13px;padding:11px 18px;border-radius:99px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.on{opacity:1}
 </style></head>
 <body>
   <div class="card">
@@ -338,28 +361,128 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
     <button id="gen">Generate Activation Key</button>
     <div class="out" id="out">
       <div class="k" id="key"></div>
-      <small>Copied to clipboard. Send this key to the customer after payment.</small>
+      <button id="copyKey" class="copybtn">Copy Activation Key</button>
+      <small>Send this key to the customer after payment.</small>
+    </div>
+
+    <div class="logsec">
+      <h2>Issued Keys Log</h2>
+      <p class="cnt" id="cnt">No keys issued yet.</p>
+      <div class="row">
+        <input id="q" placeholder="Search device ID or key" autocomplete="off"/>
+        <button id="csv" title="Download CSV">CSV</button>
+        <button id="clr" title="Clear the whole log">Clear</button>
+      </div>
+      <div class="log" id="log"></div>
     </div>
   </div>
+  <div class="toast" id="toast"></div>
 <script>/*__SHA256__*/</script>
 <script>
   var SECRET="__SECRET__";
+  var LOG_KEY="aiderma_activation_log";
+
   function makeKey(deviceId){
     var norm=deviceId.trim().toUpperCase();
     var h=sha256.hmac(SECRET,norm);
     var s=h.slice(0,16).toUpperCase();
     return s.match(/.{1,4}/g).join('-');
   }
+  function readLog(){
+    try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return [];}
+  }
+  function writeLog(l){
+    try{localStorage.setItem(LOG_KEY,JSON.stringify(l));}catch(e){}
+    renderLog();
+  }
+  function toast(m){
+    var t=document.getElementById('toast');t.textContent=m;t.className='toast on';
+    setTimeout(function(){t.className='toast';},1600);
+  }
+  function copy(txt,msg){
+    try{navigator.clipboard.writeText(txt);toast(msg||'Copied');}
+    catch(e){
+      var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);
+      ta.select();try{document.execCommand('copy');toast(msg||'Copied');}catch(e2){}
+      document.body.removeChild(ta);
+    }
+  }
+  function addToLog(did,key){
+    var l=readLog();
+    var i=l.findIndex(function(e){return e.did===did;});
+    var entry={did:did,key:key,at:new Date().toISOString()};
+    if(i>-1){entry.at=l[i].at;l.splice(i,1);}
+    l.unshift(entry);
+    writeLog(l);
+  }
+  function fmt(iso){
+    var d=new Date(iso);
+    if(isNaN(d)) return '';
+    return d.toLocaleDateString()+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  }
+  function renderLog(){
+    var l=readLog(), q=(document.getElementById('q').value||'').trim().toUpperCase();
+    var f=l.filter(function(e){return !q||e.did.indexOf(q)>-1||e.key.indexOf(q)>-1;});
+    document.getElementById('cnt').textContent =
+      l.length===0 ? 'No keys issued yet.'
+      : l.length+' key'+(l.length===1?'':'s')+' issued'+(q?(' \\u00b7 '+f.length+' matching'):'');
+    var box=document.getElementById('log');
+    box.innerHTML='';
+    if(f.length===0){
+      var e=document.createElement('div');e.className='empty';
+      e.textContent = l.length ? 'No matches.' : 'Generated keys are saved here on this device.';
+      box.appendChild(e);return;
+    }
+    f.forEach(function(en){
+      var it=document.createElement('div');it.className='item';
+      var info=document.createElement('div');info.className='info';
+      var d=document.createElement('div');d.className='did';d.textContent=en.did;
+      var k=document.createElement('div');k.className='kk';k.textContent=en.key;
+      var a=document.createElement('div');a.className='at';a.textContent=fmt(en.at);
+      info.appendChild(d);info.appendChild(k);info.appendChild(a);
+      var cp=document.createElement('button');cp.className='act';cp.textContent='Copy';
+      cp.onclick=function(){copy(en.key,'Key copied');};
+      var rm=document.createElement('button');rm.className='act';rm.textContent='\\u2715';
+      rm.title='Remove from log';
+      rm.onclick=function(){writeLog(readLog().filter(function(x){return x.did!==en.did;}));};
+      it.appendChild(info);it.appendChild(cp);it.appendChild(rm);
+      box.appendChild(it);
+    });
+  }
+
   var did=document.getElementById('did'),out=document.getElementById('out'),
       keyEl=document.getElementById('key'),err=document.getElementById('err');
   document.getElementById('gen').onclick=function(){
-    var v=did.value.trim();
+    var v=did.value.trim().toUpperCase();
     if(v.length<3){err.style.display='block';out.style.display='none';return;}
     err.style.display='none';
     var k=makeKey(v);
     keyEl.textContent=k;out.style.display='block';
-    try{navigator.clipboard.writeText(k);}catch(e){}
+    addToLog(v,k);
+    copy(k,'Key copied');
   };
+  document.getElementById('copyKey').onclick=function(){
+    var k=keyEl.textContent.trim();
+    if(k) copy(k,'Key copied');
+  };
+  did.onkeydown=function(e){if(e.key==='Enter'){document.getElementById('gen').onclick();}};
+  document.getElementById('q').oninput=renderLog;
+  document.getElementById('clr').onclick=function(){
+    if(readLog().length && confirm('Clear the entire issued-keys log?')) writeLog([]);
+  };
+  document.getElementById('csv').onclick=function(){
+    var l=readLog();
+    if(!l.length){toast('Log is empty');return;}
+    var rows=[['Device ID','Activation Key','Issued At']].concat(
+      l.map(function(e){return [e.did,e.key,e.at];}));
+    var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\\n');
+    var a=document.createElement('a');
+    a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+    a.download='aiderma-activation-log.csv';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    toast('CSV downloaded');
+  };
+  renderLog();
 </script>
 </body></html>"""
 
