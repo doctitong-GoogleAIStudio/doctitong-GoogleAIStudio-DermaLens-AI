@@ -54,6 +54,7 @@ export default function Result() {
   const qColor = qualityToken(colors, d.imageQuality.score);
 
   const onShare = async () => {
+    if (sharing) return;
     setSharing(true);
     try {
       await shareReport(item);

@@ -20,7 +20,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  // Never let a stalled network call hang the app (e.g. auth bootstrap on launch).
+  const controller = new AbortController();
+  const timeoutMs = path === "/analyze" ? 120000 : 15000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, headers, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw new ApiError("The server took too long to respond.", 0);
+    throw new ApiError("Network error. Check your connection and try again.", 0);
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await res.text();
   let body: any = {};
   try {

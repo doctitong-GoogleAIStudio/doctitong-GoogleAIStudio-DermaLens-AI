@@ -5,6 +5,7 @@ import { makeStyles, useTheme, fonts, fontSize, spacing } from "@/src/theme";
 export default function Index() {
   const styles = useStyles();
   const { colors } = useTheme();
+
   return (
     <View style={styles.container} testID="bootstrap-screen">
       <Text style={styles.brand}>AI Dermatologist</Text>

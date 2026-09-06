@@ -1,5 +1,5 @@
 import "react-native-reanimated";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -32,6 +32,9 @@ function Gate() {
     const group = segments[0];
     const inAuth = group === "(auth)";
     const onActivate = group === "activate";
+    // "/" renders the bootstrap spinner only — authenticated users must be
+    // moved off it, otherwise a page refresh leaves them stuck loading.
+    const atRoot = segments.length === 0;
 
     if (!user) {
       if (!inAuth) router.replace("/(auth)/login");
@@ -42,8 +45,8 @@ function Gate() {
       return;
     }
     // Authenticated + within trial (or activated): allow visiting /activate
-    // voluntarily; only bounce away from the auth screens.
-    if (inAuth) router.replace("/(tabs)");
+    // voluntarily; only bounce away from the auth screens and the bootstrap route.
+    if (inAuth || atRoot) router.replace("/(tabs)");
   }, [authReady, trialReady, user, expired, activated, segments, router]);
 
   return (
@@ -58,7 +61,7 @@ function Gate() {
 }
 
 export default function RootLayout() {
-  const [loaded] = useFonts({
+  const [loaded, fontError] = useFonts({
     "PlusJakartaSans-Bold": require("../assets/fonts/PlusJakartaSans-Bold.ttf"),
     "PlusJakartaSans-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
     "Geist-Regular": require("../assets/fonts/Geist-Regular.ttf"),
@@ -69,11 +72,20 @@ export default function RootLayout() {
     "SpaceGrotesk-Bold": require("../assets/fonts/SpaceGrotesk-Bold.ttf"),
   });
 
+  // Fonts must never be able to block the app from opening.
+  const [fontTimeout, setFontTimeout] = useState(false);
   useEffect(() => {
-    if (loaded) SplashScreen.hideAsync();
-  }, [loaded]);
+    const t = setTimeout(() => setFontTimeout(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
 
-  if (!loaded) return null;
+  const canRender = loaded || !!fontError || fontTimeout;
+
+  useEffect(() => {
+    if (canRender) SplashScreen.hideAsync().catch(() => {});
+  }, [canRender]);
+
+  if (!canRender) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

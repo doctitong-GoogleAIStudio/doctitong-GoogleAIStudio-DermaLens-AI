@@ -1,0 +1,29 @@
+{
+  "summary": "Bootstrap-spinner hang bug is FIXED and fully verified. Logged-in user reloading '/' now lands on Home in ~0.6s every time (4 consecutive reloads: 0.61s, 0.60s, 0.61s, 0.59s). Direct navigation to '/' while logged in also lands on Home in 0.60s. Logged-out '/' reaches the login screen in 0.31s with no flicker. Idle 20s test confirms no remount ('Running application main' console printed only once per page load) and the trial countdown keeps ticking. Logout->login->Home regression works, /activate navigation and back works, scan-notes flow (seed via localStorage with double-JSON-encoded value -> note-card -> note-sheet -> note-save persisted to storage) works, and share-pdf triggers window.print() on the /result screen. Backend quick checks: /api/auth/login=200, /api/auth/me=200, /api/activation-tool=200. One MINOR observation: clicking share-pdf-btn once caused window.print() to be invoked TWICE in the same tick — not a bug that blocks the user, but worth debouncing.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "share-pdf-btn (app/result.tsx)", "issue": "Single tap on Share/Download PDF invokes window.print() twice in one tick (call count = 2). Likely double-onPress or an effect firing on state update. Consider debouncing.", "testID": "share-pdf-btn", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_6.json"],
+  "action_items": [
+    "Optional: debounce share-pdf-btn onPress so window.print() fires exactly once per tap (currently fires twice)."
+  ],
+  "critical_code_review_comments": [
+    "_layout.tsx Gate now correctly redirects on segments.length === 0. Fix is minimal and correct.",
+    "src/api.ts AbortController timeout implementation is clean; 15s default / 120s for /analyze is reasonable.",
+    "Font-loading gate correctly falls through on error OR after 4s (canRender = loaded || !!fontError || fontTimeout).",
+    "history.ts writeHistory JSON.stringifies the array then storage.setItem JSON.stringifies again, producing the double-encoded value the test spec references. readHistory reverses this correctly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Seeded /result?id=test-seed-1 via page.evaluate: localStorage.setItem('diagnosis_history', JSON.stringify(JSON.stringify([HistoryItem]))). This matches the double-encoded on-disk format produced by writeHistory (storage.setItem JSON.stringifies the already-stringified array).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reload timing on Home ~0.6s. AsyncStorage web adapter stores under window.localStorage using the raw key ('diagnosis_history'). Because writeHistory does JSON.stringify(items) then storage.setItem does JSON.stringify again, the on-disk value is a JSON-encoded JSON-encoded array (double-encoded). HistoryItem shape required by /result: {id, createdAt, date, images[], thumbnail, imageInfo{name,resolution}, note, diagnosis{imageQuality, mostLikelyDiagnosis{conditionName,confidence,description,urgency,urgencyReason}, differentialDiagnoses[], nextSteps[], disclaimer}}. testIDs used: bootstrap-screen, trial-banner, header-logout, header-activate, login-submit, note-card, note-sheet, note-input, note-save, share-pdf-btn.",
+  "rca_of_issue": "Original spinner-hang RCA (fixed by main agent): app/_layout.tsx Gate() only redirected users away from '(auth)' group; the '/' route (app/index.tsx = bootstrap spinner) had no redirect, so a refresh while logged in left the user stuck. Fix at _layout.tsx line 37-49 adds `atRoot = segments.length === 0` and includes it in the redirect condition `if (inAuth || atRoot) router.replace('/(tabs)')`. Combined with (a) api.ts AbortController-based fetch timeout so a stalled /auth/me can't hang authReady, and (b) 4s useFonts fallback + always-hide splash in _layout.tsx, the hang is fully eliminated. Verified across 4 hard reloads + direct nav — no stuck-on-bootstrap-screen reproduction found."
+}
