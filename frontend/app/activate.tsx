@@ -19,10 +19,11 @@ export default function Activate() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { deviceId, activated, expired, activate, requestActivation } = useTrial();
+  const { deviceId, activated, activationKey, expired, activate, requestActivation } = useTrial();
   const { user } = useAuth();
 
   const [celebrate, setCelebrate] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
 
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,13 @@ export default function Activate() {
     setCopied(true);
     Haptics.selectionAsync();
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const copyKey = async () => {
+    await Clipboard.setStringAsync(activationKey);
+    setKeyCopied(true);
+    Haptics.selectionAsync();
+    setTimeout(() => setKeyCopied(false), 1500);
   };
 
   const onActivate = async () => {
@@ -64,7 +72,7 @@ export default function Activate() {
       setRequestState("sent");
     } catch {
       setRequestState("idle");
-      setError("Could not send your request. Please check your connection.");
+      setError("Could not open your email app. Copy the Device ID and email it to us instead.");
     }
   };
 
@@ -107,6 +115,25 @@ export default function Activate() {
           </View>
         </Pressable>
 
+        {activated && !!activationKey && (
+          <>
+            <Text style={styles.label}>Your Activation Key</Text>
+            <Pressable style={styles.idCard} onPress={copyKey} testID="activation-key-card">
+              <Text style={styles.idText} selectable>
+                {activationKey}
+              </Text>
+              <View style={styles.copyBtn}>
+                <Ionicons name={keyCopied ? "checkmark" : "copy-outline"} size={18} color={colors.brandPrimary} />
+                <Text style={styles.copyText}>{keyCopied ? "Copied" : "Copy"}</Text>
+              </View>
+            </Pressable>
+            <Text style={styles.keepHint}>
+              Keep this key somewhere safe. If you ever reinstall the app on this phone, enter it again to
+              re-activate instantly — it never expires.
+            </Text>
+          </>
+        )}
+
         {!activated && (
           <>
             {/* Payment */}
@@ -134,10 +161,10 @@ export default function Activate() {
               />
               <Text style={styles.requestText}>
                 {requestState === "sending"
-                  ? "Sending…"
+                  ? "Opening email…"
                   : requestState === "sent"
-                    ? "Request sent — we'll send your key soon"
-                    : "Send my Device ID for activation"}
+                    ? "Email opened — send it to get your key"
+                    : "Email my Device ID for activation"}
               </Text>
             </Pressable>
 
@@ -223,5 +250,13 @@ const useStyles = makeStyles((colors) => ({
   requestBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.md, marginHorizontal: spacing.xl, paddingVertical: spacing.md },
   requestText: { fontFamily: fonts.bodySemi, fontSize: fontSize.base, color: colors.brandPrimary, textAlign: "center" },
   error: { color: colors.error, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, marginHorizontal: spacing.xl, marginTop: spacing.xs },
+  keepHint: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.sm,
+    lineHeight: 18,
+  },
   footer: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
 }));

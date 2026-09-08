@@ -1,21 +1,23 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform, Linking } from "react-native";
+import * as MailComposer from "expo-mail-composer";
 
-import { api } from "@/src/api";
 import { storage } from "@/src/utils/storage";
-import { useAuth } from "@/src/auth";
-import { resolveDeviceId, validateActivationKey, computeActivationKey } from "@/src/device";
+import { resolveDeviceId, validateActivationKey } from "@/src/device";
 
 export const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const TRIAL_START_KEY = "trial_start_ms";
 const ACTIVATED_KEY = "device_activated";
+const ACTIVATION_KEY_KEY = "device_activation_key";
 
 interface TrialContextValue {
   ready: boolean;
   deviceId: string;
   trialStartMs: number;
   activated: boolean;
+  /** The key that unlocked this device — shown so the user can keep it for a reinstall. */
+  activationKey: string;
   now: number;
   msRemaining: number;
   expired: boolean;
@@ -23,14 +25,16 @@ interface TrialContextValue {
   requestActivation: () => Promise<{ status: string; emailed: boolean }>;
 }
 
+export const ADMIN_EMAIL = process.env.EXPO_PUBLIC_ADMIN_EMAIL ?? "docvincent2022@yahoo.com";
+
 const TrialContext = createContext<TrialContextValue | undefined>(undefined);
 
 export function TrialProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
   const [ready, setReady] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [trialStartMs, setTrialStartMs] = useState(0);
   const [activated, setActivated] = useState(false);
+  const [activationKey, setActivationKey] = useState("");
   const [now, setNow] = useState(Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -48,6 +52,7 @@ export function TrialProvider({ children }: { children: React.ReactNode }) {
 
       const act = await storage.getItem<boolean>(ACTIVATED_KEY, false);
       setActivated(!!act);
+      setActivationKey((await storage.getItem<string>(ACTIVATION_KEY_KEY, "")) ?? "");
       setNow(Date.now());
       setReady(true);
     })();
@@ -64,42 +69,16 @@ export function TrialProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Activation lives on the server too, keyed by Device ID, so a reinstall or a
-  // different account on the same phone stays activated.
-  useEffect(() => {
-    if (!user || !deviceId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (activated) {
-          // Make sure a device activated before this sync existed is registered.
-          await api.deviceActivate(deviceId, computeActivationKey(deviceId));
-          return;
-        }
-        const res = await api.deviceStatus(deviceId);
-        if (cancelled || !res.activated) return;
-        await storage.setItem(ACTIVATED_KEY, true);
-        setActivated(true);
-      } catch {
-        // Offline or server unreachable — the local flag still applies.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, deviceId, activated]);
+  // Activation lives entirely on this device — no server, works offline.
 
   const activate = useCallback(
     async (key: string) => {
       if (!deviceId) return false;
       if (validateActivationKey(deviceId, key)) {
         await storage.setItem(ACTIVATED_KEY, true);
+        await storage.setItem(ACTIVATION_KEY_KEY, key.trim().toUpperCase());
         setActivated(true);
-        try {
-          await api.deviceActivate(deviceId, key);
-        } catch {
-          // Recorded locally; the sync effect will retry on the next launch.
-        }
+        setActivationKey(key.trim().toUpperCase());
         return true;
       }
       return false;
@@ -107,8 +86,25 @@ export function TrialProvider({ children }: { children: React.ReactNode }) {
     [deviceId],
   );
 
+  /** Opens the phone's email app with the Device ID pre-filled — no server needed. */
   const requestActivation = useCallback(async () => {
-    return api.requestActivation(deviceId);
+    const subject = "AI Dermatologist — Device Activation Request";
+    const body =
+      `Hello,\n\nPlease send me the activation key for my device.\n\n` +
+      `Device ID: ${deviceId}\n\nThank you.`;
+
+    if (Platform.OS !== "web" && (await MailComposer.isAvailableAsync())) {
+      const res = await MailComposer.composeAsync({
+        recipients: [ADMIN_EMAIL],
+        subject,
+        body,
+      });
+      return { status: res.status, emailed: res.status === "sent" };
+    }
+
+    const url = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    await Linking.openURL(url);
+    return { status: "opened", emailed: false };
   }, [deviceId]);
 
   const msRemaining = Math.max(0, trialStartMs + TRIAL_MS - now);
@@ -116,7 +112,18 @@ export function TrialProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <TrialContext.Provider
-      value={{ ready, deviceId, trialStartMs, activated, now, msRemaining, expired, activate, requestActivation }}
+      value={{
+        ready,
+        deviceId,
+        trialStartMs,
+        activated,
+        activationKey,
+        now,
+        msRemaining,
+        expired,
+        activate,
+        requestActivation,
+      }}
     >
       {children}
     </TrialContext.Provider>

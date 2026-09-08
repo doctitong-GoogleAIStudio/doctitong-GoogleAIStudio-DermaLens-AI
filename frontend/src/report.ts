@@ -6,7 +6,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import type { HistoryItem } from "@/src/types";
 import { HISTORY_FIELDS } from "@/src/types";
 import { informationUsed } from "@/src/informationUsed";
-import { api } from "@/src/api";
 
 async function imageToDataUri(uri: string): Promise<string | null> {
   try {
@@ -109,35 +108,30 @@ export async function shareReport(item: HistoryItem): Promise<void> {
   const html = await buildReportHtml(item);
   const filename = reportFilename(item);
 
-  // Web: the print dialog is blocked inside the embedded preview frame, so build
-  // a real PDF on the server and hand the browser a download. If the server is
-  // unreachable, fall back to the browser's own print / save-as-PDF dialog.
+  // Native builds print the PDF locally — no server involved. On web the print
+  // dialog is the only option available in the browser sandbox.
   if (Platform.OS === "web") {
-    try {
-      const blob = await api.reportPdf(html, filename);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch {
-      await Print.printAsync({ html });
-    }
+    await Print.printAsync({ html });
     return;
   }
 
   const { uri } = await Print.printToFileAsync({ html });
+  let shareUri = uri;
+  // Give the shared file a meaningful name instead of the random print temp name.
+  if (FileSystem.cacheDirectory) {
+    try {
+      const dest = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.copyAsync({ from: uri, to: dest });
+      shareUri = dest;
+    } catch {}
+  }
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, {
+    await Sharing.shareAsync(shareUri, {
       mimeType: "application/pdf",
       dialogTitle: "Share Analysis Report",
       UTI: "com.adobe.pdf",
     });
     return;
   }
-  await Print.printAsync({ uri });
+  await Print.printAsync({ uri: shareUri });
 }

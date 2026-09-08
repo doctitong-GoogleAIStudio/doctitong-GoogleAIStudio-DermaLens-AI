@@ -37,7 +37,7 @@ export default function Signup() {
     setError(null);
     if (!fullName.trim()) return setError("Please enter your full name.");
     if (!isValidEmail(email)) return setError("Please enter a valid email address.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
+    if (password.length < 8) return setError("Password must be at least 8 characters.");
 
     setLoading(true);
     try {
@@ -90,7 +90,7 @@ export default function Signup() {
               label="Password"
               value={password}
               onChangeText={setPassword}
-              placeholder="At least 6 characters"
+              placeholder="At least 8 characters"
               secureTextEntry
               containerTestID="signup-password"
             />

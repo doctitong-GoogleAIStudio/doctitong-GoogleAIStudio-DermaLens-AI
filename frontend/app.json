@@ -21,7 +21,9 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.emergent.aidermatologistapp.r2pygs",
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -48,12 +50,17 @@
       "@react-native-vector-icons/ionicons",
       [
         "expo-camera",
-        { "cameraPermission": "Take photos of skin lesions for AI analysis" }
+        {
+          "cameraPermission": "Take photos of skin lesions for AI analysis"
+        }
       ],
       [
         "expo-image-picker",
-        { "photosPermission": "Upload skin photos for AI analysis" }
-      ]
+        {
+          "photosPermission": "Upload skin photos for AI analysis"
+        }
+      ],
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true

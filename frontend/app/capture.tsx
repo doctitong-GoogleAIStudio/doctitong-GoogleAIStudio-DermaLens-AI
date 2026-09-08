@@ -11,7 +11,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
 import { ClinicalHistorySheet } from "@/src/components/ClinicalHistorySheet";
-import { api } from "@/src/api";
+import { analyzeImages } from "@/src/gemini";
 import { useAddHistory, useUpdateHistory, readHistory } from "@/src/history";
 import { makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { HISTORY_FIELDS, type AssessmentMode, type ClinicalHistory, type HistoryItem } from "@/src/types";
@@ -195,9 +195,9 @@ export default function Capture() {
       });
       const viewLabels = shots.length > 1 ? shots.map((_, i) => VIEW_LABELS[i] ?? "Additional view") : undefined;
 
-      const diagnosis = await api.analyze(
+      const diagnosis = await analyzeImages(
         shots.map((s) => s.base64),
-        { history: Object.keys(filled).length ? filled : undefined, viewLabels },
+        { history: Object.keys(filled).length ? (filled as ClinicalHistory) : undefined, viewLabels },
       );
 
       const id = existing?.id ?? `${Date.now()}`;

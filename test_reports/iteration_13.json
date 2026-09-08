@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 13 (standalone/offline build) — frontend-only test. All 9 requested feature buckets verified. Zero /api/* calls made across the FULL session (signup -> home -> capture -> analyze -> result -> PDF -> activate -> mailto -> about). Gemini is called directly at generativelanguage.googleapis.com with x-goog-api-key header. Local auth (PBKDF2), duplicate-email case-insensitive, whitespace-tolerant login, identical 'Email or password is incorrect.' error, 8-char client-side validation, and session restore all confirmed. Offline activation with network blocked works and the new activation-key-card is shown and copyable. Send-Device-ID opens mailto:docvincent2022@yahoo.com with the Device ID in the body — no API call. Share PDF invokes window.print (browser print dialog) with no /api/report call. Gemini error paths (offline abort, 429, 400 invalid key) all show the correct friendly messages with the app staying usable. About screen shows the new privacy card (testID about-privacy) and Version 1.0.4. No src/api.ts, no references to EXPO_PUBLIC_BACKEND_URL in app/ or src/.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_13.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "frontend/.env still ships EXPO_PUBLIC_BACKEND_URL although no code path reads it anymore — safe to delete for a cleaner standalone build.",
+    "src/report.ts uses `encoding: 'base64' as any` for FileSystem.readAsStringAsync — works but the `as any` should be replaced with FileSystem.EncodingType.Base64 to satisfy TS on legacy import.",
+    "capture.tsx routes native paths through expo-mail-composer / native camera which cannot be exercised on web preview — device-build only.",
+    "Session survives page reload only when the JS bundle is reachable. In the Metro dev preview a full offline reload cannot download the initial bundle, so the app cannot render offline in this env. This is a dev-preview limitation only; in a native/production build all JS is embedded and the app is fully offline. Auth logic itself is 100% offline (verified: 0 /api calls; signup/signout succeeded while the browser was set to offline after first load)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (backend intentionally unused)", "frontend": "100%"},
+  "seed_data_creation": "Each test creates its own local account (email prefixed with test/tester/scan/off/sess + timestamp) — no shared data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Fully standalone/offline build. Do NOT run backend/pytest — the FastAPI backend is intentionally decoupled from the app. Fresh accounts must be created per test session (accounts live in browser secure-store only). The web preview cannot fully test: native expo-mail-composer (falls back to mailto — verified), native share-sheet PDF (web falls back to Print.printAsync — verified), and full-offline reload (Metro dev-server bundle limitation, not app bug). To validate activation, extract Device ID from testID='device-id-card' and compute the HMAC-SHA256 key with secret DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns (first 16 hex chars, uppercased, dashed).",
+  "verified_flows": [
+    "Signup: Jane Doe / <unique>@example.com / secret123 -> Home with 7-Day Free Trial banner (0 /api calls).",
+    "Client-side rejects password <8 chars with 'Password must be at least 8 characters.'",
+    "Duplicate email (upper-cased) rejected with 'An account with this email already exists on this device.'",
+    "Login with wrong password AND unknown email produce IDENTICAL 'Email or password is incorrect.'",
+    "Login accepts email with surrounding whitespace and different case.",
+    "Session persists after full page reload (still on Home).",
+    "Send-Device-ID button copy = 'Email my Device ID for activation'; captured navigation = mailto:docvincent2022@yahoo.com?subject=...&body=...Device%20ID%3A%20<id>; ZERO /api/device/request-activation calls.",
+    "Activation with browser routed to abort *.googleapis.com AND all /api/*: valid HMAC key succeeds -> ActivationCelebration overlay -> Home shows 'Device Activated'; invalid key -> 'Invalid activation key for this device.'",
+    "After activation, /activate shows testID=activation-key-card with the exact key; tap -> 'Copied' state.",
+    "Gemini call: single POST to https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent with x-goog-api-key header, systemInstruction + prompt + 1 inline_data JPEG, adaptive 'single clinical photograph' phrasing. Result page rendered with imageQuality + diagnosis; localStorage.diagnosis_history populated.",
+    "Gemini error routes: abort -> 'No internet connection. AI analysis needs to be online — your photos stay on this phone.'; 429 -> 'The AI is rate limited right now. Please try again in a moment.'; 400 'API key not valid' -> 'The Gemini API key in this build is invalid.' In all cases the overlay dismisses and the close button remains tappable.",
+    "share-pdf-btn calls window.print() on web; no /api/report/pdf request made.",
+    "About screen: privacy card (testID=about-privacy) with 'Your data stays on this phone' copy, plus Not-Medical-Advice card, Version 1.0.4, 'Powered by Google Gemini'.",
+    "Full-session network audit: 0 requests to *.emergentagent.com/api/*; only external non-frontend host used was generativelanguage.googleapis.com."
+  ]
+}

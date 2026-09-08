@@ -61,6 +61,18 @@ export default function About() {
           Upload a photo to receive an AI-powered assessment identifying potential conditions.
         </Text>
 
+        <View style={styles.privacy} testID="about-privacy">
+          <View style={styles.disclaimerHead}>
+            <Ionicons name="lock-closed" size={18} color={colors.brandPrimary} />
+            <Text style={styles.disclaimerTitle}>Your data stays on this phone</Text>
+          </View>
+          <Text style={styles.disclaimerText}>
+            Your account, scan history, notes and reports are stored only on this device — there is no cloud
+            account and no server. Photos are sent to the AI model for the moment of analysis only, and an
+            internet connection is needed for that step alone.
+          </Text>
+        </View>
+
         <View style={styles.disclaimer} testID="about-disclaimer">
           <View style={styles.disclaimerHead}>
             <Ionicons name="warning" size={18} color={colors.warning} />
@@ -126,6 +138,14 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: radius.lg,
     borderLeftWidth: 4,
     borderLeftColor: colors.warning,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  privacy: {
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.brandPrimary,
     padding: spacing.lg,
     marginBottom: spacing.xl,
   },
