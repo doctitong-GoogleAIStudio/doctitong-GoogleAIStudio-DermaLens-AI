@@ -9,6 +9,7 @@ import { Button } from "@/src/components/Button";
 import { NoteSheet } from "@/src/components/NoteSheet";
 import { useHistory, useSetNote } from "@/src/history";
 import { shareReport } from "@/src/report";
+import { informationUsed } from "@/src/informationUsed";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import type { HistoryItem } from "@/src/types";
 
@@ -27,8 +28,7 @@ function qualityToken(colors: any, score: string) {
   return colors.error;
 }
 
-export default function Result() {
-  const styles = useStyles();
+export default function Result() {  const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -53,6 +53,7 @@ export default function Result() {
   const d = item.diagnosis;
   const urg = urgencyToken(colors, d.mostLikelyDiagnosis.urgency);
   const qColor = qualityToken(colors, d.imageQuality.score);
+  const infoUsed = informationUsed(item);
 
   const onShare = async () => {
     if (sharingRef.current) return;
@@ -99,9 +100,61 @@ export default function Result() {
             <Ionicons name="sparkles" size={14} color="#FFFFFF" />
             <Text style={styles.qualityPillText}>Quality: {d.imageQuality.score}</Text>
           </View>
-          <Text style={styles.resolution}>{item.imageInfo.resolution}</Text>
+          <Text style={styles.resolution}>{item.imageInfo?.resolution ?? "—"}</Text>
         </View>
         <Text style={styles.qualityFeedback}>{d.imageQuality.feedback}</Text>
+
+        {/* Not enough information — smart follow-up */}
+        {d.assessmentPossible === false && (
+          <View style={styles.moreInfoCard} testID="more-info-card">
+            <View style={styles.moreInfoHead}>
+              <Ionicons name="help-circle" size={20} color={colors.warning} />
+              <Text style={styles.moreInfoTitle}>More Information May Help</Text>
+            </View>
+            <Text style={styles.moreInfoText}>
+              The current image does not provide enough information for a reliable AI-assisted assessment.
+            </Text>
+            {(d.moreInfoNeeded ?? []).map((s, i) => (
+              <View key={i} style={styles.moreInfoRow}>
+                <Ionicons name="arrow-forward" size={14} color={colors.brandPrimary} />
+                <Text style={styles.moreInfoItem}>{s}</Text>
+              </View>
+            ))}
+            <Button
+              label="Add Photos & Re-analyze"
+              onPress={() => router.push({ pathname: "/capture", params: { caseId: item.id } })}
+              testID="reanalyze-photos"
+              style={{ marginTop: spacing.lg }}
+            />
+            <Button
+              label="Add History & Re-analyze"
+              variant="secondary"
+              onPress={() =>
+                router.push({ pathname: "/capture", params: { caseId: item.id, addHistory: "1" } })
+              }
+              testID="reanalyze-history"
+              style={{ marginTop: spacing.md }}
+            />
+          </View>
+        )}
+
+        {/* Information used */}
+        <Text style={styles.sectionTitle}>Information Used</Text>
+        <View style={styles.card} testID="information-used">
+          {infoUsed.map((line, i) => (
+            <View key={i} style={styles.infoRow}>
+              <Ionicons
+                name={line.provided ? "checkmark-circle" : "remove-circle-outline"}
+                size={16}
+                color={line.provided ? colors.success : colors.muted}
+              />
+              <Text style={[styles.infoText, !line.provided && { color: colors.muted }]}>{line.label}</Text>
+            </View>
+          ))}
+          <Text style={styles.infoNote}>
+            Additional high-quality views and relevant history give the model more clinical context.
+          </Text>
+        </View>
 
         {/* Most likely */}
         <View style={styles.primaryCard}>
@@ -137,6 +190,23 @@ export default function Result() {
                 <Text style={styles.diffDesc}>{x.description}</Text>
               </View>
             ))}
+          </>
+        )}
+
+        {/* Red flags */}
+        {(d.redFlags ?? []).length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Red Flags</Text>
+            <View style={[styles.card, { borderColor: colors.error }]} testID="red-flags">
+              {d.redFlags!.map((f, i) => (
+                <View key={i} style={styles.stepRow}>
+                  <View style={[styles.stepDot, { backgroundColor: colors.error }]}>
+                    <Ionicons name="alert" size={13} color={colors.onError} />
+                  </View>
+                  <Text style={styles.stepText}>{f}</Text>
+                </View>
+              ))}
+            </View>
           </>
         )}
 
@@ -189,7 +259,7 @@ export default function Result() {
           icon={<Ionicons name="share-outline" size={20} color={colors.onBrandPrimary} />}
           testID="share-pdf-btn"
         />
-        <Pressable style={styles.newScan} onPress={() => router.replace("/capture")} testID="new-analysis-btn">
+        <Pressable style={styles.newScan} onPress={() => router.replace("/assessment")} testID="new-analysis-btn">
           <Text style={styles.newScanText}>Start New Analysis</Text>
         </Pressable>
       </View>
@@ -237,6 +307,34 @@ const useStyles = makeStyles((colors) => ({
   },
   noteText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, lineHeight: 20 },
   noteAction: { fontFamily: fonts.bodySemi, fontSize: fontSize.sm, color: colors.brandPrimary },
+  moreInfoCard: {
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  moreInfoHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  moreInfoTitle: { fontFamily: fonts.displaySemi, fontSize: fontSize.lg, color: colors.onSurface },
+  moreInfoText: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 20,
+  },
+  moreInfoRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: spacing.md },
+  moreInfoItem: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface, lineHeight: 20 },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: 4 },
+  infoText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface },
+  infoNote: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    marginTop: spacing.sm,
+    lineHeight: 18,
+  },
   qualityPill: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill },
   qualityPillText: { fontFamily: fonts.bodySemi, fontSize: fontSize.sm, color: "#FFFFFF" },
   resolution: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.muted },

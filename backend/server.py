@@ -86,8 +86,19 @@ class TokenOut(BaseModel):
     user: PublicUser
 
 
+class ClinicalHistoryIn(BaseModel):
+    location: Optional[str] = None
+    duration: Optional[str] = None
+    symptoms: Optional[str] = None
+    evolution: Optional[str] = None
+    medicalHistory: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class AnalyzeIn(BaseModel):
     images: List[str] = Field(min_length=1, max_length=6)  # base64 (may include data URI prefix)
+    history: Optional[ClinicalHistoryIn] = None
+    viewLabels: Optional[List[str]] = None
 
 
 class ActivationRequestIn(BaseModel):
@@ -181,20 +192,88 @@ ANALYSIS_SYSTEM = (
     "First, assess the quality of the provided image(s) for clinical analysis. Rate quality as "
     "'Excellent', 'Good', 'Fair', or 'Poor' based on lighting, focus/clarity and framing, with brief "
     "feedback. Then analyze the morphology of the lesion(s) (color, shape, border, size, texture) and "
-    "identify key features based ONLY on the visual information. Do not ask for more information.\n\n"
+    "identify key features based ONLY on the information supplied to you.\n\n"
+    "If the supplied information is genuinely insufficient for a useful assessment (for example a "
+    "severely blurred, dark or overexposed photograph, or a view too distant to show the lesion), do "
+    "NOT invent a confident diagnosis: set \"assessmentPossible\" to false and list specific, "
+    "actionable items in \"moreInfoNeeded\" (e.g. 'Take a closer, well-lit photo', 'Add another angle', "
+    "'Tell us how long the lesion has been present'). Otherwise set \"assessmentPossible\" to true and "
+    "leave \"moreInfoNeeded\" as an empty array.\n\n"
     "Respond with a SINGLE valid JSON object and NOTHING ELSE (no markdown, no code fences). "
     "Use exactly this shape:\n"
     "{\n"
     '  "imageQuality": { "score": "Excellent|Good|Fair|Poor", "feedback": "string" },\n'
+    '  "assessmentPossible": true,\n'
+    '  "moreInfoNeeded": [ "string" ],\n'
     '  "mostLikelyDiagnosis": { "conditionName": "string", "confidence": "High|Medium|Low", '
     '"description": "string", "urgency": "Routine|Requires Prompt Attention|Urgent", "urgencyReason": "string" },\n'
     '  "differentialDiagnoses": [ { "conditionName": "string", "confidence": "High|Medium|Low", "description": "string" } ],\n'
+    '  "redFlags": [ "string" ],\n'
     '  "nextSteps": [ "string" ],\n'
     '  "disclaimer": "string"\n'
     "}\n"
+    "When assessmentPossible is false, still fill mostLikelyDiagnosis with conditionName "
+    "'Insufficient information', confidence 'Low' and a short explanation.\n"
     "The disclaimer must clearly state this is an AI-generated analysis and not a substitute for "
     "professional medical advice."
 )
+
+HISTORY_LABELS = {
+    "location": "Anatomical location",
+    "duration": "Duration",
+    "symptoms": "Symptoms",
+    "evolution": "Lesion evolution",
+    "medicalHistory": "Relevant medical history",
+    "notes": "Additional description",
+}
+
+
+def _build_analysis_prompt(data: "AnalyzeIn") -> str:
+    parts: List[str] = []
+    n = len(data.images)
+
+    if n == 1:
+        parts.append(
+            "You are evaluating this case using a single clinical photograph. Carefully assess the "
+            "visible findings, but recognize the limitations of a single image. Do not infer features "
+            "that cannot be reliably seen. Generate a reasonable ranked differential diagnosis and "
+            "communicate uncertainty appropriately."
+        )
+    else:
+        parts.append(
+            f"You are evaluating {n} photographs of the SAME lesion or eruption taken from different "
+            "views, distances, or angles. Treat them as one clinical case. Integrate information across "
+            "all images rather than diagnosing each photograph independently."
+        )
+        if data.viewLabels:
+            labels = ", ".join(v for v in data.viewLabels if v)
+            if labels:
+                parts.append(f"The photographs are labelled by the user as: {labels}.")
+
+    supplied = []
+    if data.history:
+        for field, label in HISTORY_LABELS.items():
+            value = (getattr(data.history, field) or "").strip()
+            if value:
+                supplied.append(f"- {label}: {value}")
+
+    if supplied:
+        parts.append(
+            "Integrate the supplied clinical history, symptoms, anatomical location, duration, "
+            "evolution, medications, exposures, and other relevant information with the visual findings "
+            "when generating the differential assessment.\n\nClinical history provided by the patient:\n"
+            + "\n".join(supplied)
+        )
+    else:
+        parts.append(
+            "No clinical history was provided. Base your assessment on the image(s) alone and say so "
+            "where relevant."
+        )
+
+    parts.append(
+        "Return ONLY the JSON object described in your instructions."
+    )
+    return "\n\n".join(parts)
 
 
 def _extract_json(text: str) -> dict:
@@ -225,8 +304,7 @@ async def analyze(data: AnalyzeIn, current_user: PublicUser = Depends(get_curren
         system_message=ANALYSIS_SYSTEM,
     ).with_model("gemini", GEMINI_MODEL)
 
-    prompt = ("Analyze the attached skin lesion image(s) and return the JSON described in your "
-              "instructions. Return ONLY the JSON object.")
+    prompt = _build_analysis_prompt(data)
     message = UserMessage(text=prompt, file_contents=image_contents)
 
     try:
@@ -246,6 +324,9 @@ async def analyze(data: AnalyzeIn, current_user: PublicUser = Depends(get_curren
         logger.error(f"Failed to parse AI JSON: {buf[:500]}")
         raise HTTPException(status_code=502, detail="The AI returned an invalid response. Please try again.")
 
+    result.setdefault("assessmentPossible", True)
+    result.setdefault("moreInfoNeeded", [])
+    result.setdefault("redFlags", [])
     return result
 
 

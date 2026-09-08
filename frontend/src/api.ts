@@ -65,8 +65,14 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<{ id: string; full_name: string; email: string }>("/auth/me"),
-  analyze: (images: string[]) =>
-    request<any>("/analyze", { method: "POST", body: JSON.stringify({ images }) }),
+  analyze: (
+    images: string[],
+    extra?: { history?: Record<string, string | undefined>; viewLabels?: string[] },
+  ) =>
+    request<any>("/analyze", {
+      method: "POST",
+      body: JSON.stringify({ images, history: extra?.history, viewLabels: extra?.viewLabels }),
+    }),
   requestActivation: (device_id: string) =>
     request<{ status: string; emailed: boolean }>("/device/request-activation", {
       method: "POST",

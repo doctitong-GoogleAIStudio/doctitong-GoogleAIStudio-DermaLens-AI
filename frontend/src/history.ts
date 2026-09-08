@@ -38,6 +38,19 @@ export function useAddHistory() {
   });
 }
 
+export function useUpdateHistory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (item: HistoryItem) => {
+      const items = await readHistory();
+      const next = items.map((i) => (i.id === item.id ? item : i));
+      await writeHistory(next);
+      return next;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: historyQueryKey }),
+  });
+}
+
 export function useClearHistory() {
   const qc = useQueryClient();
   return useMutation({

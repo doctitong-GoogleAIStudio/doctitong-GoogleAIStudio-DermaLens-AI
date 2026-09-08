@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 12 verification of the one-character fix in /app/frontend/app/capture.tsx:216 (`existing?.imageInfo.resolution ?? '—'` -> `existing?.imageInfo?.resolution ?? '—'`). ALL THREE requested flows PASS. (A) RE-ANALYZE VIA HISTORY: seeded a legacy history item with NO imageInfo, opened /result?id=<id>, tapped reanalyze-history (sheet auto-opened), filled Body location='left forearm' and Duration='3 months', tapped history-save, then analyze-btn ('Re-analyze Now'). No capture-error was raised; the AI call completed and the URL became /result?id=reanalyze-test-1 (SAME id). localStorage `diagnosis_history` (double-JSON) still contains EXACTLY ONE entry with id='reanalyze-test-1'; clinicalHistory persisted as {location:'left forearm', duration:'3 months'}; imageInfo.resolution correctly falls back to '—'; Information Used shows '1 clinical photograph', 'Anatomical location' and 'Duration'. (B) RE-ANALYZE VIA PHOTOS: seeded a fresh legacy item id=reanalyze-photos-2, tapped reanalyze-photos — clinical-history-sheet did NOT auto-open (correct). Uploaded a 2nd valid 700x700 JPEG (/tmp/valid_seed.jpg, ~370KB) so shot count == 2. Tapped analyze-btn; AI call completed and URL became /result?id=reanalyze-photos-2 (SAME id). History still has exactly ONE entry with same id; images.length==2; Information Used shows '2 clinical photographs'. (C) REGRESSION (new-scan quick upload): from Home with 1 pre-seeded entry, FAB → /assessment → mode-quick + quick-upload-photo → /capture?mode=quick&action=upload → uploaded /tmp/valid_seed.jpg → improve-title visible → analyze-btn → after AI call URL is /result?id=<NEW_id 1788854378528>. History length grew from 1 → 2 with a new id in position 0 while the existing 'regression-existing' entry is preserved; Home renders both history-item-<...> testIDs. No red-screen or capture-error observed in any flow. No Expo/React-Native deprecated-package or SafeAreaView issues detected in the touched surfaces. Testing agent made no code changes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_12.json",
+    "/app/test_reports/iteration_11.json"
+  ],
+  "action_items": [
+    "LOW (optional polish, not blocking): capture.tsx shotFromStored() still returns width:0/height:0 for restored images (lines 67-77). As a result, after re-analyzing a legacy case the resolution pill shows '—' rather than the case's real dimensions. Consider decoding the restored JPEG (or reading it from existing.imageInfo when present) so `first.width` picks the primary branch — same fix suggestion as iteration 11's LOW item, still not applied."
+  ],
+  "critical_code_review_comments": [
+    "capture.tsx:216 now correctly uses `existing?.imageInfo?.resolution ?? '—'` — matches the same defensive pattern already applied to result.tsx:103 in iteration 10.",
+    "result.tsx:103 continues to render '—' cleanly for legacy items with no imageInfo (verified again this pass).",
+    "history.ts useUpdateHistory correctly rewrites the SAME entry (map by id) → no duplicate row is created on re-analyze."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run per request)", "frontend": "100% for the three requested flows (3/3 PASS)"},
+  "seed_data_creation": "Frontend-only. Seed pattern: `localStorage.setItem('diagnosis_history', JSON.stringify(<single_json_string_of_array>))` — i.e. the value in localStorage must be the JSON-encoded string of the JSON string of the items array (double-JSON), matching what storage.setItem writes. Prior iteration's double-json via Python f-string produces a SINGLE-encoded value in localStorage and appears empty to readHistory; use `page.evaluate((s)=>{localStorage.setItem('diagnosis_history', JSON.stringify(s));}, JSON.stringify(items))` instead. Two legacy items (no imageInfo, assessmentPossible:false) and one full item (with imageInfo) were used across the three flows. Valid 700x700 JPEG for uploads is at /tmp/valid_seed.jpg (~370KB).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "1) The two defensive-read misses on `imageInfo.resolution` (result.tsx:103 and capture.tsx:216) are BOTH fixed and verified. 2) Same-case re-analyze via history and via photos both work end-to-end; new-scan flow still creates a fresh entry. 3) When seeding `diagnosis_history` from Playwright, do the second JSON.stringify inside `page.evaluate` (see seed_data_creation) — the pure-Python `json.dumps(json.dumps(...))` inserted via f-string ends up single-encoded in localStorage. 4) React-Native TextInputs render as a wrapper `[data-testid=...]` around a real `<input>`/`<textarea>`; fill with `[data-testid=\"...\"] input, [data-testid=\"...\"] textarea`. 5) history-save is below the fold at 390x844 — call `element.scrollIntoView({block:'center'})` and use a real Playwright `.click()`. 6) The AI call is real; allow up to ~90s for the /result redirect. 7) Optional follow-up: preserve original width/height in shotFromStored() so the resolution pill shows the real dimensions after a re-analyze."
+}

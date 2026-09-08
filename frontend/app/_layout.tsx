@@ -53,6 +53,7 @@ function Gate() {
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
         <Stack.Screen name="capture" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
+        <Stack.Screen name="assessment" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="result" options={{ presentation: "card" }} />
         <Stack.Screen name="activate" options={{ gestureEnabled: false }} />
       </Stack>

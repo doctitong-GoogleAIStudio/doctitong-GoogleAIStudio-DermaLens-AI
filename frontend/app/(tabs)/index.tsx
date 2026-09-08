@@ -146,7 +146,7 @@ export default function Home() {
               </View>
               <Text style={styles.emptyTitle}>No scans yet</Text>
               <Text style={styles.emptyText}>
-                Tap the + button to capture your first skin lesion and get a preliminary AI analysis.
+                Tap the + button to start a new skin assessment and get a preliminary AI analysis.
               </Text>
             </View>
           ) : null
@@ -155,7 +155,7 @@ export default function Home() {
 
       <Pressable
         style={[styles.fab, { bottom: spacing.xl }]}
-        onPress={() => router.push("/capture")}
+        onPress={() => router.push("/assessment")}
         testID="new-scan-fab"
       >
         <Ionicons name="add" size={32} color={colors.onBrandPrimary} />

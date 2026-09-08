@@ -4,6 +4,8 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 
 import type { HistoryItem } from "@/src/types";
+import { HISTORY_FIELDS } from "@/src/types";
+import { informationUsed } from "@/src/informationUsed";
 import { api } from "@/src/api";
 
 async function imageToDataUri(uri: string): Promise<string | null> {
@@ -45,6 +47,17 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
     .join("");
 
   const steps = (d.nextSteps || []).map((s) => `<li>${esc(s)}</li>`).join("");
+  const flags = (d.redFlags || []).map((s) => `<li>${esc(s)}</li>`).join("");
+  const infoLines = informationUsed(item)
+    .map((l) => `<li>${esc(l.label)}</li>`)
+    .join("");
+  const h = item.clinicalHistory ?? {};
+  const historyRows = HISTORY_FIELDS.filter((f) => (h[f.key] ?? "").trim())
+    .map(
+      (f) =>
+        `<div class="card"><span class="muted">${esc(f.clinicalLabel)}</span><p>${esc((h[f.key] ?? "").trim())}</p></div>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
   <style>
@@ -76,7 +89,10 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
       <p class="muted">${esc(d.mostLikelyDiagnosis?.urgencyReason || "")}</p>
     </div>
     ${diffs ? `<h2>Other Possibilities</h2>${diffs}` : ""}
+    ${flags ? `<h2>Red Flags</h2><ul>${flags}</ul>` : ""}
     ${steps ? `<h2>Recommended Next Steps</h2><ul>${steps}</ul>` : ""}
+    <h2>Information Used</h2><ul>${infoLines}</ul>
+    ${historyRows ? `<h2>Clinical History Provided</h2>${historyRows}` : ""}
     ${item.note ? `<h2>Patient Note</h2><div class="card"><p>${esc(item.note)}</p></div>` : ""}
     <h2>Disclaimer</h2>
     <div class="disc">${esc(d.disclaimer || "")}</div>
@@ -94,18 +110,23 @@ export async function shareReport(item: HistoryItem): Promise<void> {
   const filename = reportFilename(item);
 
   // Web: the print dialog is blocked inside the embedded preview frame, so build
-  // a real PDF on the server and hand the browser a download.
+  // a real PDF on the server and hand the browser a download. If the server is
+  // unreachable, fall back to the browser's own print / save-as-PDF dialog.
   if (Platform.OS === "web") {
-    const blob = await api.reportPdf(html, filename);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    try {
+      const blob = await api.reportPdf(html, filename);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      await Print.printAsync({ html });
+    }
     return;
   }
 
