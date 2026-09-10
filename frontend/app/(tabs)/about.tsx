@@ -1,10 +1,8 @@
-import { View, Text, ScrollView, Pressable, Linking } from "react-native";
+import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
-import { useTrial } from "@/src/trial";
 
 function Row({
   icon,
@@ -35,8 +33,6 @@ export default function About() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { deviceId, activated } = useTrial();
 
   return (
     <View style={styles.root}>
@@ -83,18 +79,6 @@ export default function About() {
             and is not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice
             of your physician or qualified health provider.
           </Text>
-        </View>
-
-        <Text style={styles.groupLabel}>License</Text>
-        <View style={styles.group}>
-          <Row
-            icon={activated ? "shield-checkmark" : "key-outline"}
-            label={activated ? "Activated" : "Activate this Device"}
-            onPress={() => router.push("/activate")}
-            testID="about-activate"
-          />
-          <View style={styles.divider} />
-          <Row icon="finger-print-outline" label="Device ID" value={deviceId || "…"} />
         </View>
 
         <Text style={styles.groupLabel}>Information</Text>

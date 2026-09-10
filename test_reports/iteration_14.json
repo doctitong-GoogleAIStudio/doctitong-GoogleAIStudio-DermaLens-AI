@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only regression for iteration 14 — activation system completely removed. All acceptance criteria PASSED: (1) signup subtitle is 'Your scans stay private on this phone' (no '7-day free trial'); (2) HOME has trial-banner=0, header-activate=0, and no forbidden words ('Activate', 'Device ID', 'License', 'GCash', 'trial', 'Trial'); (3) ABOUT has about-activate=0, about-privacy present, Version 1.0.4 shown, no forbidden words; (4) direct navigation to /activate renders Expo Router's 'Unmatched Route / Page could not be found' — no crash, no red screen, no activation UI; (5) simulating expired trial (localStorage trial_start_ms=1, device_activated removed) followed by reload keeps the user on Home with FAB accessible and trial-banner still zero, bootstrap-screen never stuck; (6) signup->Home, header-logout->login, sign-in->Home, refresh-while-signed-in->Home all work; (7) FAB->/assessment shows both Option 1 Quick Analysis and Option 2 Enhanced Analysis (Multiple Photos + Clinical History); (8) network capture shows ZERO calls to *.emergentagent.com/api/* across the entire session. Source-level grep in /app/frontend/{app,src} for 'trial|activate|activation|device_activated|useTrial|TrialProvider|Device ID|GCash|gcash' returned zero matches; all deleted files (app/activate.tsx, src/trial.tsx, src/device.ts, src/components/ActivationCelebration.tsx, assets/images/gcash-qr.png) confirmed absent. No React Native or Expo deprecation issues detected in touched files. Deep scan-analysis/PDF regression was not re-executed (already verified in iteration 13) — the code paths for gemini, report and history are unchanged in this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_14.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "app/_layout.tsx Gate correctly handles atRoot redirect to /(tabs) so refresh does not stick on bootstrap-screen — verified in test.",
+    "About screen no longer imports useTrial; License group fully removed (verified via grep and UI text scan).",
+    "The unused FastAPI backend still contains legacy activation endpoints (not called by app). Consider a follow-up cleanup, but harmless because EXPO_PUBLIC_BACKEND_URL is never hit by the frontend (0 network calls captured)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped by request)", "frontend": "100%"},
+  "seed_data_creation": "Created local account noact2@example.com / secret123 (Local Tester) via in-app signup — lives only in that browser context, expected offline behaviour.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Activation system verified completely removed. Local accounts live in browser localStorage (expo-secure-store web fallback), so tests must sign up within the same browser context or reuse a persistent one. /activate now returns Expo Router's Unmatched Route screen (expected). No backend calls are made anywhere; if a future iteration re-introduces server sync, that will need re-verification.",
+  "rca_of_issue": "N/A — this iteration was a removal/cleanup, not a bug fix."
+}

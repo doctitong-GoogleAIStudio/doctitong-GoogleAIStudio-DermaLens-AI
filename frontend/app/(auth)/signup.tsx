@@ -64,7 +64,7 @@ export default function Signup() {
         <View style={styles.body}>
           <Image source={require("@/assets/images/app-logo.png")} style={styles.logo} contentFit="contain" />
           <Text style={styles.title}>Create account</Text>
-          <Text style={styles.subtitle}>Start your 7-day free trial</Text>
+          <Text style={styles.subtitle}>Your scans stay private on this phone</Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <Field
@@ -90,8 +90,7 @@ export default function Signup() {
               label="Password"
               value={password}
               onChangeText={setPassword}
-              placeholder="At least 8 characters"
-              secureTextEntry
+              placeholder="At least 8 characters"              secureTextEntry
               containerTestID="signup-password"
             />
           </View>

@@ -14,7 +14,6 @@ import { LogBox } from "react-native";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { AuthProvider, useAuth } from "@/src/auth";
-import { TrialProvider, useTrial } from "@/src/trial";
 import { useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
@@ -22,16 +21,14 @@ SplashScreen.preventAutoHideAsync();
 
 function Gate() {
   const { ready: authReady, user } = useAuth();
-  const { ready: trialReady, expired, activated } = useTrial();
   const { colors } = useTheme();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (!authReady || !trialReady) return;
+    if (!authReady) return;
     const group = segments[0];
     const inAuth = group === "(auth)";
-    const onActivate = group === "activate";
     // "/" renders the bootstrap spinner only — authenticated users must be
     // moved off it, otherwise a page refresh leaves them stuck loading.
     const atRoot = (segments as string[]).length === 0;
@@ -40,14 +37,8 @@ function Gate() {
       if (!inAuth) router.replace("/(auth)/login");
       return;
     }
-    if (expired && !activated) {
-      if (!onActivate) router.replace("/activate");
-      return;
-    }
-    // Authenticated + within trial (or activated): allow visiting /activate
-    // voluntarily; only bounce away from the auth screens and the bootstrap route.
     if (inAuth || atRoot) router.replace("/(tabs)");
-  }, [authReady, trialReady, user, expired, activated, segments, router]);
+  }, [authReady, user, segments, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -55,7 +46,6 @@ function Gate() {
         <Stack.Screen name="capture" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="assessment" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="result" options={{ presentation: "card" }} />
-        <Stack.Screen name="activate" options={{ gestureEnabled: false }} />
       </Stack>
     </View>
   );
@@ -95,10 +85,8 @@ export default function RootLayout() {
           <ErrorBoundary>
             <QueryClientProvider client={queryClient}>
               <AuthProvider>
-                <TrialProvider>
-                  <StatusBar style="auto" />
-                  <Gate />
-                </TrialProvider>
+                <StatusBar style="auto" />
+                <Gate />
               </AuthProvider>
             </QueryClientProvider>
           </ErrorBoundary>
