@@ -1,0 +1,28 @@
+{
+  "summary": "Verified the reported logout->login-fails-with-same-credentials bug is FIXED on the web preview. Signup persists (hashed-email key + id-index + session), 3 consecutive logout/login cycles all succeed with no 'Email or password is incorrect' error, full-page reload logout->login also succeeds, wrong password / unknown email are correctly rejected, duplicate signup (also with different casing 'RELOG2@Example.com') is rejected, and case+whitespace login ('  RELOG2@Example.com  ' with correct password) succeeds. Signup completed in ~0.4-0.6s. No calls to *.emergentagent.com/api/*. About page shows 'Version 1.0.6'. FAB navigates to /assessment which shows both mode cards (Quick Analysis / Enhanced Analysis). Note: SecureStore is unavailable on web, so the AsyncStorage fallback path (writeRecord read-back -> setItem) is what was exercised here; the native Keychain path can only be fully verified on a device build.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_15.json"],
+  "action_items": [
+    "None from web preview run. Main agent should still smoke-test the native (Android device) build once, since only that path exercises the real expo-secure-store Keychain branch and the writeRecord read-back verification for it. On device, confirm signup->logout->login also succeeds and that a hashed local_account_<hex> entry is present in SecureStore (or falls back to AsyncStorage and is readable)."
+  ],
+  "critical_code_review_comments": [
+    "localAuth.ts: hashed account key (sha256 of normalized email) correctly avoids SecureStore's key-charset restriction. writeRecord read-back + AsyncStorage fallback is a sound belt-and-braces approach for web.",
+    "localSignUp performs a post-write readAccountByEmail check and rolls back both the account and the id-index entry on failure — correct.",
+    "PBKDF2 iterations 60_000 is a reasonable speed/security trade-off; observed signup latency ~0.4-0.6s on web preview, well within the requested 1-3s budget.",
+    "normalizeEmail (trim + lowercase en-US) is applied consistently on both signUp lookup and signIn lookup — case/whitespace login works.",
+    "No new deprecated Expo packages introduced by this change. (Prior warning 'shadow* style props are deprecated. Use \"boxShadow\"' is preexisting, unrelated to auth fix.)"
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only per request)", "frontend": "100% (8/8 scenarios passed)"},
+  "seed_data_creation": "Created local account: Relog2 Tester / relog2@example.com / secret123 via the app UI (stored in browser localStorage under hashed key).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Storage keys observed on web after signup: [local_account_d826f03f...<64 hex chars>, local_account_id_<uuid>, local_session]. All in window.localStorage (AsyncStorage web shim uses localStorage). Matches regex /^local_account_[0-9a-f]{64}$/ — no '@' or '%' anywhere. No IndexedDB usage. Backend intentionally unused; no /api requests observed.",
+  "rca_of_issue": "Confirmed root cause matches the report: previously the SecureStore key was 'local_account_' + encodeURIComponent(email), containing '@' and '%25', which SecureStore silently rejects (allowed chars: [A-Za-z0-9._-] only). Because the storage helpers swallow failures, signup appeared to succeed but nothing was persisted; the in-memory React state was the only session, so after signOut the account was gone and signIn always threw 'Email or password is incorrect.' Fix (verified): hash email via SHA-256 and use the hex digest as the SecureStore key (always safe), plus a write->read-back verification with AsyncStorage fallback for platforms without a Keychain (e.g. web). Reproduction is no longer possible on web preview after the fix."
+}

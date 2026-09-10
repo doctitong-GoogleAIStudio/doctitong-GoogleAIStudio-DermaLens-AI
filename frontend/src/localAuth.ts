@@ -11,7 +11,7 @@ import type { AuthUser } from "@/src/types";
  * Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes.
  */
 
-const ITERATIONS = 100_000;
+const ITERATIONS = 60_000;
 const KEY_BYTES = 32;
 const SALT_BYTES = 16;
 const ACCOUNT_PREFIX = "local_account_";
@@ -41,8 +41,35 @@ async function derive(password: string, saltHex: string, iterations: number): Pr
   return hex(out);
 }
 
+/**
+ * SecureStore only accepts keys made of letters, digits, ".", "-" and "_", so the
+ * email is hashed into a hex key. (An email-derived key with "@"/"%" fails to save
+ * silently, which used to lose the account as soon as the user logged out.)
+ */
+const accountKey = (email: string) => ACCOUNT_PREFIX + hex(sha256(utf8ToBytes(email)));
+
+async function writeRecord(key: string, value: string): Promise<boolean> {
+  if (await storage.secureSet(key, value)) {
+    const back = await storage.secureGet<string>(key, "");
+    if (back === value) return true;
+  }
+  // Keychain unavailable (e.g. web) — fall back to regular storage.
+  return storage.setItem(key, value);
+}
+
+async function readRecord(key: string): Promise<string> {
+  const secure = await storage.secureGet<string>(key, "");
+  if (secure) return secure;
+  return (await storage.getItem<string>(key, "")) ?? "";
+}
+
+async function removeRecord(key: string): Promise<void> {
+  await storage.secureRemove(key);
+  await storage.removeItem(key);
+}
+
 async function readAccountByEmail(email: string): Promise<Account | null> {
-  const raw = await storage.secureGet<string>(ACCOUNT_PREFIX + encodeURIComponent(email), "");
+  const raw = await readRecord(accountKey(email));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as Account;
@@ -85,9 +112,20 @@ export async function localSignUp(fullName: string, emailInput: string, password
       iterations: ITERATIONS,
       createdAt: new Date().toISOString(),
     };
-    const key = ACCOUNT_PREFIX + encodeURIComponent(email);
-    await storage.secureSet(key, JSON.stringify(account));
-    await storage.secureSet(ID_PREFIX + account.id, key);
+    const key = accountKey(email);
+    const record = JSON.stringify(account);
+    await writeRecord(key, record);
+    await writeRecord(ID_PREFIX + account.id, key);
+
+    // Make sure the account really persisted — otherwise the user would be
+    // unable to log back in after signing out.
+    const check = await readAccountByEmail(email);
+    if (!check) {
+      await removeRecord(key);
+      await removeRecord(ID_PREFIX + account.id);
+      throw new Error("Could not save your account on this device. Please try again.");
+    }
+
     await storage.setItem(SESSION_KEY, account.id);
     return publicUser(account);
   });
@@ -108,9 +146,9 @@ export async function localSignIn(emailInput: string, password: string): Promise
 export async function localGetSession(): Promise<AuthUser | null> {
   const id = await storage.getItem<string>(SESSION_KEY, "");
   if (!id) return null;
-  const key = await storage.secureGet<string>(ID_PREFIX + id, "");
+  const key = await readRecord(ID_PREFIX + id);
   if (!key) return null;
-  const raw = await storage.secureGet<string>(key, "");
+  const raw = await readRecord(key);
   if (!raw) return null;
   try {
     return publicUser(JSON.parse(raw) as Account);
