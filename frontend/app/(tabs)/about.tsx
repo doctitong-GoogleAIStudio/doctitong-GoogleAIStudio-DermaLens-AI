@@ -85,7 +85,7 @@ export default function About() {
         <View style={styles.group}>
           <Row icon="person-outline" label="Created by" value="V. C. Cavalida Jr. MD" />
           <View style={styles.divider} />
-          <Row icon="information-circle-outline" label="Version" value="1.0.4" />
+          <Row icon="information-circle-outline" label="Version" value="1.0.6" />
         </View>
 
         <Text style={styles.footer}>Powered by Google Gemini</Text>
