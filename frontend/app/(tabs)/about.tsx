@@ -85,7 +85,7 @@ export default function About() {
         <View style={styles.group}>
           <Row icon="person-outline" label="Developed by" value="aivicventures" />
           <View style={styles.divider} />
-          <Row icon="information-circle-outline" label="Version" value="1.0.8" />
+          <Row icon="information-circle-outline" label="Version" value="1.0.9" />
         </View>
 
         <Text style={styles.footer}>Powered by Google Gemini</Text>
