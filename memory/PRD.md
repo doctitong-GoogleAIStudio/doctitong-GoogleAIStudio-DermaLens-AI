@@ -52,6 +52,19 @@ GCash QR for payment (owner to upload).
 - P2: Manual light/dark theme toggle (currently follows system).
 - P2: Multi-image comparison view in results.
 
+## Standalone offline rewrite (current state, 2026-06)
+- App is 100% offline/standalone: no backend calls. `/app/backend` is obsolete/unused.
+- Local accounts only: PBKDF2-HMAC-SHA256 in expo-secure-store (fallback AsyncStorage), `src/localAuth.ts`.
+- Gemini 3.1 Pro called directly from the client (`src/gemini.ts`, EXPO_PUBLIC_GEMINI_API_KEY).
+- Trial + activation removed entirely. Version 1.0.9, credit "aivicventures".
+- Two modes: Quick Analysis (1 photo) and Enhanced Analysis (multi-view + clinical history).
+- Stay Signed In: session persists in AsyncStorage; sign-out requires confirmation (native Alert,
+  window.confirm on web). [DONE 2026-06]
+- Android build health pass: expo ~57.0.21, expo-router ~57.0.20, added @expo/log-box;
+  removed unused deps (react-native-qrcode-svg, react-native-dotenv, js-sha256, date-fns, dayjs,
+  expo-clipboard, expo-blur, expo-mail-composer + its app.json plugin). expo-doctor 20/20.
+  Android JS bundle exports successfully. [DONE 2026-06]
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.

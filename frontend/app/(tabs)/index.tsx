@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, FlatList, Pressable, RefreshControl } from "react-native";
+import { View, Text, FlatList, Pressable, RefreshControl, Alert, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -26,6 +26,20 @@ export default function Home() {
     setRefreshing(false);
   }, [refetch]);
 
+  // The session is kept on this phone, so signing out is always deliberate.
+  const confirmSignOut = useCallback(() => {
+    const message = "You'll need your email and password to sign back in on this phone.";
+    if (Platform.OS === "web") {
+      // react-native-web has no UI for multi-button Alert.alert.
+      if (window.confirm(`Sign out?\n\n${message}`)) void signOut();
+      return;
+    }
+    Alert.alert("Sign out?", message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => void signOut() },
+    ]);
+  }, [signOut]);
+
   const renderItem = ({ item }: { item: HistoryItem }) => (
     <HistoryCard
       item={item}
@@ -44,7 +58,7 @@ export default function Home() {
           </Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable style={styles.iconBtn} onPress={signOut} testID="header-logout">
+          <Pressable style={styles.iconBtn} onPress={confirmSignOut} testID="header-logout">
             <Ionicons name="log-out-outline" size={22} color={colors.onSurface} />
           </Pressable>
         </View>

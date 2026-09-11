@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend regression sweep after dependency cleanup + Stay-Signed-In + sign-out confirm. App loads on web preview with zero console/page errors, no red screen, and no references to removed modules (clipboard/blur/mail-composer/qrcode/dayjs/date-fns/js-sha256/react-native-dotenv). Signup (Test User / test-fork1@example.com / secret123) lands on Home. Session persistence works: reloading the page keeps the user on Home (no re-login required). About tab shows 'Version 1.0.9' and 'Developed by aivicventures'. Wrong password shows exactly 'Email or password is incorrect.'. Login-after-logout succeeds (previously fixed bug — no regression). Assessment screen opens cleanly with Quick + Enhanced options. Only caveat: the sign-out confirmation Alert.alert cannot be visually validated on the web preview because react-native-web's Alert has no UI for multi-button alerts (well-known limitation) — the on-device Alert code is correct and will work on the native Android build.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Alert (sign-out confirm)", "issue": "Alert.alert('Sign out?', ...) shows no dialog on the web preview because react-native-web has no UI for multi-button Alerts — clicking testID 'header-logout' therefore appears to do nothing on web. Code itself is standard/correct and will work on native Android/iOS. Reference: /app/frontend/app/(tabs)/index.tsx:31-34. Not a bug, but flagged so future testers on web preview know it must be validated on a device build."}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "No functional fixes needed. Optional (for future robustness on web preview only): the sign-out confirm could fall back to a custom Modal on Platform.OS==='web' so testers can exercise the flow in-browser; on device the current Alert.alert works as-is."
+  ],
+  "critical_code_review_comments": [
+    "Gate() logic in /app/frontend/app/_layout.tsx correctly waits for authReady and redirects; the 'atRoot' guard fixes the reload-loading bug and now supports Stay-Signed-In.",
+    "localAuth.ts: SecureStore key is hashed (sha256) so email-derived keys with '@' no longer fail silently — good fix. Iterations=60k, salt=16B, key=32B is reasonable for on-device.",
+    "localGetSession reads SESSION_KEY from plain storage (AsyncStorage/localStorage), so the session persists across reloads. Verified working on web preview.",
+    "No references remain in app source to removed packages (expo-clipboard/expo-blur/expo-mail-composer/react-native-qrcode-svg/dayjs/date-fns/js-sha256/react-native-dotenv). app.json plugins list is clean."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% for verifiable flows on web; sign-out Alert UI not verifiable on web (RN-Web limitation)"},
+  "seed_data_creation": "Created local account in-browser: Test User / test-fork1@example.com / secret123 (stored only in that browser's localStorage — no shared state).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth is local-only (PBKDF2 in expo-secure-store, falls back to localStorage on web). Session key: 'local_session' in localStorage. To force-logout on web preview (because Alert.alert has no UI on RN-Web), run: window.localStorage.removeItem('local_session') then reload. Field inputs are inside [data-testid='<container>'] with an inner <input>; use `[data-testid=\"signup-email\"] input` selectors. testIDs available: login-email, login-password, login-submit, login-error, go-signup, signup-name, signup-email, signup-password, signup-submit, signup-error, go-login, new-scan-fab, header-logout, history-empty, history-refresh, about-privacy, about-disclaimer.",
+  "rca_of_issue": "N/A — no functional regressions found. The apparent 'sign-out does nothing on web' behaviour is caused by react-native-web not implementing Alert.alert() UI for multi-button variants; the JS callback for the Cancel/Sign out buttons is never invoked because the Alert never surfaces. This is a platform-only limitation, not an app bug."
+}

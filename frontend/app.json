@@ -59,8 +59,7 @@
         {
           "photosPermission": "Upload skin photos for AI analysis"
         }
-      ],
-      "expo-mail-composer"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
