@@ -6,6 +6,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/auth";
+import { useSubscription } from "@/src/billing";
 import { useHistory, useDeleteHistory } from "@/src/history";
 import { HistoryCard } from "@/src/components/HistoryCard";
 import type { HistoryItem } from "@/src/types";
@@ -16,6 +17,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { available: billingAvailable, isSubscribed, freeLeft, canAnalyze } = useSubscription();
   const { data: history = [], isLoading, refetch } = useHistory();
   const deleteItem = useDeleteHistory();
   const [refreshing, setRefreshing] = useState(false);
@@ -64,6 +66,29 @@ export default function Home() {
         </View>
       </View>
 
+      {billingAvailable && (
+        <Pressable
+          style={styles.planBanner}
+          onPress={() => router.push("/paywall")}
+          testID="plan-banner"
+          disabled={isSubscribed}
+        >
+          <Ionicons
+            name={isSubscribed ? "shield-checkmark" : "sparkles-outline"}
+            size={18}
+            color={colors.brandPrimary}
+          />
+          <Text style={styles.planBannerText}>
+            {isSubscribed
+              ? "Premium active — unlimited analyses"
+              : freeLeft > 0
+                ? `${freeLeft} free analysis left — tap to see plans`
+                : "Free analysis used — subscribe to continue"}
+          </Text>
+          {!isSubscribed && <Ionicons name="chevron-forward" size={18} color={colors.muted} />}
+        </Pressable>
+      )}
+
       <FlatList
         data={history}
         keyExtractor={(i) => i.id}
@@ -104,7 +129,7 @@ export default function Home() {
 
       <Pressable
         style={[styles.fab, { bottom: spacing.xl }]}
-        onPress={() => router.push("/assessment")}
+        onPress={() => router.push(canAnalyze ? "/assessment" : "/paywall")}
         testID="new-scan-fab"
       >
         <Ionicons name="add" size={32} color={colors.onBrandPrimary} />
@@ -115,6 +140,18 @@ export default function Home() {
 
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.surface },
+  planBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.brandTertiary,
+  },
+  planBannerText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onBrandTertiary },
   header: {
     flexDirection: "row",
     alignItems: "flex-end",

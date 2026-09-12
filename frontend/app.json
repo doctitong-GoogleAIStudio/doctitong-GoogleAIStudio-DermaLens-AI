@@ -59,7 +59,8 @@
         {
           "photosPermission": "Upload skin photos for AI analysis"
         }
-      ]
+      ],
+      "expo-iap"
     ],
     "experiments": {
       "typedRoutes": true

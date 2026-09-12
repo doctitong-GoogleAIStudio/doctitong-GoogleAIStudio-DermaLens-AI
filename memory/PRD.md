@@ -65,6 +65,12 @@ GCash QR for payment (owner to upload).
   expo-clipboard, expo-blur, expo-mail-composer + its app.json plugin). expo-doctor 20/20.
   Android JS bundle exports successfully. [DONE 2026-06]
 
+- Google Play Billing subscriptions (direct, `expo-iap` 5.6.0 — RevenueCat explicitly refused by
+  user): 1 free analysis per device, then paywall with Monthly + Yearly plans
+  (`premium_monthly` / `premium_yearly`), no trial. Play is the source of truth; purchases are
+  acknowledged client-side; gating is disabled on web/iOS where Play cannot run.
+  Details + remaining Play Console steps: `/app/memory/google_play_billing.md`. [DONE 2026-06]
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.

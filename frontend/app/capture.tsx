@@ -12,6 +12,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button } from "@/src/components/Button";
 import { ClinicalHistorySheet } from "@/src/components/ClinicalHistorySheet";
 import { analyzeImages } from "@/src/gemini";
+import { useSubscription } from "@/src/billing";
 import { useAddHistory, useUpdateHistory, readHistory } from "@/src/history";
 import { makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { HISTORY_FIELDS, type AssessmentMode, type ClinicalHistory, type HistoryItem } from "@/src/types";
@@ -92,6 +93,7 @@ export default function Capture() {
   const [permission, requestPermission] = useCameraPermissions();
   const addHistory = useAddHistory();
   const updateHistory = useUpdateHistory();
+  const { canAnalyze, countAnalysis } = useSubscription();
 
   const [shots, setShots] = useState<Shot[]>([]);
   const [clinicalHistory, setClinicalHistory] = useState<ClinicalHistory>({});
@@ -185,6 +187,10 @@ export default function Capture() {
 
   const analyze = async () => {
     if (shots.length === 0) return;
+    if (!canAnalyze) {
+      router.push("/paywall");
+      return;
+    }
     setAnalyzing(true);
     setError(null);
     try {
@@ -224,6 +230,7 @@ export default function Capture() {
 
       if (existing) await updateHistory.mutateAsync(item);
       else await addHistory.mutateAsync(item);
+      await countAnalysis();
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: "/result", params: { id } });

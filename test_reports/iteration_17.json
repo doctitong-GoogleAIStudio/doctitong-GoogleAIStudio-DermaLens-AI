@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend regression after adding expo-iap + SubscriptionProvider. App boots cleanly on web preview — no red screen, no console errors mentioning expo-iap/ExpoIap/native module/TurboModule. Signup lands on Home. Web-only gating verified: (1) testID 'plan-banner' is ABSENT on Home (because store.ts returns available:false on web), (2) '+' FAB (testID 'new-scan-fab') opens /assessment even for a user who has not spent their free analysis, never /paywall — matches canAnalyze=true when billingAvailable=false. /paywall renders correctly when reached directly: 'Go Premium' title, hero copy, all 5 benefit rows ('Unlimited AI skin analyses', 'Quick and Enhanced assessments', 'Multi-view photos + clinical history', 'PDF reports for every scan', 'Your full scan history on this phone'), the 'Subscriptions are purchased through Google Play…' notice inside testID 'paywall-unavailable', testID 'paywall-close' present, and no plan cards / subscribe button rendered (paywall-plans absent) — this is the correct web state. Assessment screen still shows Quick + Enhanced with Upload One Photo (web) + Start Enhanced Assessment buttons. Stay Signed In works (reload keeps user on Home). Logout on web fires window.confirm('Sign out?…'); accepting the confirm returns the user to /login. About tab still loads with Version text. Per request, no Google Play purchase was attempted (unsupported on web/Expo Go by design). One minor issue found: on /paywall, tapping the close button when the route was reached via direct URL navigation calls router.back() with no history, which surfaces a red 'The action GO_BACK was not handled by any navigator' toast; on normal in-app navigation (FAB from an analysis-consumed state) this would be fine because /paywall is pushed on top of /(tabs)/index.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Paywall close", "issue": "When /paywall is opened by direct URL (deep link / refresh on paywall), tapping testID 'paywall-close' calls router.back() with an empty history stack and Expo Router surfaces the red toast 'The action GO_BACK was not handled by any navigator'. Suggested fix: fall back to router.replace('/(tabs)') when router.canGoBack() is false. Reference: /app/frontend/app/paywall.tsx:39", "testID": "paywall-close", "priority": "LOW"},
+      {"component": "Paywall title", "issue": "Title reads 'Your free analysis has been used' whenever the user is not subscribed, even when the paywall is opened directly on web with used=0 free analyses. Not a blocker on Android (users normally only see the paywall after spending the free scan), but reads awkwardly on web where gating is off. Consider a neutral copy like 'Go Premium' when freeLeft > 0 && !isSubscribed. Reference: /app/frontend/app/paywall.tsx:54-56", "testID": "paywall-title", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL (LOW): guard paywall-close with router.canGoBack() ? back() : replace('/(tabs)') so a direct-navigation paywall close doesn't emit the GO_BACK error toast.",
+    "OPTIONAL (LOW): tweak paywall hero copy so it does not claim 'Your free analysis has been used' when the caller still has freeLeft > 0 (matters mostly on web where gating is disabled)."
+  ],
+  "critical_code_review_comments": [
+    "SubscriptionProvider in /app/frontend/src/billing/index.tsx correctly derives canAnalyze = !store.available || store.isSubscribed || freeLeft > 0 — on web store.available is false so gating is fully disabled as designed.",
+    "store.ts (web/iOS fallback) returns a fully-stubbed StoreBilling with buy/refresh/clearError as no-ops. Metro will pick store.android.ts on Android via platform extensions. No expo-iap import ever reaches the web bundle — confirmed by absence of any expo-iap/ExpoIap/TurboModule console errors.",
+    "Home (app/(tabs)/index.tsx) hides the plan banner behind `billingAvailable && ...` and routes the FAB via canAnalyze — both branches were exercised on web and behave correctly.",
+    "Paywall correctly branches unavailable → loading → empty → plans; on web the unavailable branch renders as expected.",
+    "assessment.tsx also short-circuits to /paywall when !canAnalyze; on web canAnalyze is always true so both Quick and Enhanced buttons route to /capture as expected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% for all required web regression checks; the 2 minor UX findings are non-blocking"},
+  "seed_data_creation": "Created 2 fresh local accounts in-browser: test-billing-<ts>@example.com and test-billing2-<ts>@example.com (both password 'secret123'). Purely local storage, not shared.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Real Google Play purchases can only be tested on a signed Android build (needs premium_monthly / premium_yearly products in Play Console with active base plans). On web preview, store.ts returns available:false which disables gating and shows the 'paywall-unavailable' notice. Useful testIDs on paywall: 'paywall-close', 'paywall-unavailable', 'paywall-active', 'paywall-loading', 'paywall-empty', 'paywall-plans', 'plan-monthly', 'plan-yearly', 'paywall-subscribe', 'paywall-refresh', 'paywall-error'. Home testIDs: 'plan-banner' (absent on web), 'new-scan-fab', 'header-logout'. Web logout uses window.confirm — accept via page.on('dialog', lambda d: d.accept()). Session is stored in localStorage 'local_session' — remove + reload to force-logout.",
+  "rca_of_issue": "N/A — no regression. The two low-priority UX nits above are pre-existing edge-case behaviours of the new Paywall screen; they do not block the release path."
+}

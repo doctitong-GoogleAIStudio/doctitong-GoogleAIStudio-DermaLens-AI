@@ -14,6 +14,7 @@ import { LogBox } from "react-native";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { AuthProvider, useAuth } from "@/src/auth";
+import { SubscriptionProvider } from "@/src/billing";
 import { useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
@@ -46,6 +47,7 @@ function Gate() {
         <Stack.Screen name="capture" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="assessment" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="result" options={{ presentation: "card" }} />
+        <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
       </Stack>
     </View>
   );
@@ -85,8 +87,10 @@ export default function RootLayout() {
           <ErrorBoundary>
             <QueryClientProvider client={queryClient}>
               <AuthProvider>
-                <StatusBar style="auto" />
-                <Gate />
+                <SubscriptionProvider>
+                  <StatusBar style="auto" />
+                  <Gate />
+                </SubscriptionProvider>
               </AuthProvider>
             </QueryClientProvider>
           </ErrorBoundary>
