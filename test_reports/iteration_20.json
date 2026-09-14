@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only retest for iteration 20 (DermaLens AI v1.1.2 / versionCode 122). ALL requested cases PASS. CASE C RETEST PASS — server-only account (curl POST /api/auth/signup, pwd 'secret123') + fresh-storage browser + wrong password shows EXACTLY 'This email is registered with a different password. Use that password or reset it.' (network trace confirms POST /api/auth/login → 401 followed by GET /api/auth/email-exists → {exists:true}). CASE C NEGATIVE PASS — email 'does-not-exist-999@example.com' with wrong password shows 'Email or password is incorrect.' (login → 401, email-exists → {exists:false}). CASE E RETEST PASS — ReconnectSheet now fully reachable inside 390x844: password field bbox y=654 h=54 (bottom=708 ≤ 844) and submit button bbox y=724 h=54 (bottom=778 ≤ 844) — both is_visible=True; typing the correct password and tapping reconnect-submit clears the yellow reconnect-banner and returns the user to a clean Home. CASE A REGRESSION PASS — server-only account signs in on fresh storage, lands on Home ('DermaLens AI', 'Hi, Server'), no banner. CASE B REGRESSION PASS — signed up in-app, deleted the Mongo users row (delete_count=1), signed out, signed back in: network trace = POST /api/auth/login (401) → POST /api/auth/signup (201); Home rendered, no banner, /api/auth/email-exists after login = {exists:true} confirming migration. BRANDING PASS — About screen shows 'DermaLens AI', 'AI-Powered Skin Lesion Analysis', 'Your scans stay on this phone' with updated privacy copy ('photos are sent over a secure connection to our server for that moment of analysis only — they are not kept there. An internet connection is needed for that step alone.'); Home header title = 'DermaLens AI'; About shows Version 1.1.2 + 'Developed by aivicventures' (both matched in body text). SECURITY PASS — served entry.bundle (7.9 MB) contains 0 'AIza', 0 'generativelanguage', 0 'googleapis.com'; browser network trace over the whole run recorded 0 requests to googleapis.com/generativelanguage. Total AI /api/analyze calls this run: 0 (Gemini quota untouched, per instructions).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/case_e_banner.png",
+    "/tmp/case_e_sheet.png",
+    "/tmp/case_e_after.png",
+    "/tmp/case_b_ok.png",
+    "/tmp/about.png",
+    "/tmp/case_a_home.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "auth.tsx (line 63): the CASE C fix (call serverEmailExists on the fallback path) is correct and minimal — server 401 + no local account now branches on the new backend probe. Behaviour matches the spec exactly.",
+    "api.ts serverEmailExists: 20s timeout + AbortController + swallow-non-OK → returns false. Good — a flaky email-exists probe cannot spuriously turn a wrong-email error into the wrong-password-on-server one. On real offline, serverLogin already threw OfflineError before reaching this line, so no extra network chatter offline.",
+    "ReconnectSheet.tsx: wrapping the sheet body in a ScrollView with maxHeight 90% at the Modal level fixed the previously off-viewport submit issue on 390x844 web preview. The ScrollView.flexGrow=0 + scrollContent.justifyContent='flex-end' keeps the sheet pinned to the bottom on tall viewports without changing the native (iOS/Android) look.",
+    "Backend /api/auth/email-exists endpoint responds correctly (200 + {exists:true|false}) and does NOT require auth — appropriate for this specific use case since the client only asks after a fresh 401 from the same email; enumeration risk is bounded by the same rate limit that would already exist on /api/auth/login.",
+    "app.json: name='DermaLens AI', version='1.1.2', versionCode=122 — all correct in the served bundle."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "7/7 cases PASS: CASE A, CASE B, CASE C, CASE C-NEG, CASE E, BRANDING, SECURITY"},
+  "seed_data_creation": "Created these accounts during the run — none left behind on the server for CASE B: serveronly-1789429277@example.com (CASE A/A-regression, still on server), wrongpw-1789429277@example.com (CASE C target, still on server, pwd secret123), casee2-1789429413@example.com (CASE E, still on server), caseb2-1789429511@example.com (CASE B, DELETED from Mongo mid-test then re-created via migration then DELETED again during cleanup). Main agent may want to clean up the two serveronly/wrongpw rows if they want zero test data left.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "For any future ReconnectSheet layout regression, use viewport 390x844 and check the bounding_box of both testID='reconnect-password' AND testID='reconnect-submit' — expected y+height ≤ 844. For CASE E the reproducible way to force needsReconnect from Playwright is to await page.route('**/api/auth/login', route => route.abort()) AND page.route('**/api/auth/me', route => route.abort()) BEFORE clicking login-submit; the app falls into localSignIn via the OfflineError catch and sets needsReconnect=true. To force logout from Home, use testID='header-logout' and pre-register a page.on('dialog', d => d.accept()) handler because Home uses window.confirm on web. For CASE B, delete the user from Mongo (test_database.users, collection field 'email') AFTER signup and BEFORE signing out — keep browser storage — then log in again and watch for the login(401)+signup(201) pair. Gemini key was NOT invoked; safe to leave GEMINI_API_KEY as-is.",
+  "rca_of_issue": "Iteration 19 flagged two issues: (a) CASE C produced generic 'Email or password is incorrect.' text and (b) CASE E's reconnect-submit rendered below a 390x844 viewport. Both are now fixed. (a) Root cause was that auth.tsx line 60 threw BAD_CREDENTIALS as soon as localVerify returned null; the fix adds a new backend endpoint GET /api/auth/email-exists and calls it in auth.tsx at the same spot (line 63) so that when server 401 + local absent, the app can distinguish 'unknown email' from 'email exists on server with a different password' and pick the correct copy. Verified end-to-end via network trace + on-screen error text. (b) Root cause was `KeyboardAvoidingView behavior='padding'` on react-native-web adding enough bottom padding to push the button out of a 390x844 viewport in a slide Modal. The fix wraps the sheet content in ScrollView (maxHeight 90%) with flexGrow=0 so the sheet is now scrollable and both fields have y+height ≤ 844. Verified via Playwright bounding_box measurement and a successful submit that cleared the banner."
+}

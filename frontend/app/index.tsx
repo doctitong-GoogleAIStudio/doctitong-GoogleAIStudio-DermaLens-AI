@@ -8,7 +8,7 @@ export default function Index() {
 
   return (
     <View style={styles.container} testID="bootstrap-screen">
-      <Text style={styles.brand}>AI Dermatologist</Text>
+      <Text style={styles.brand}>DermaLens AI</Text>
       <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: spacing.lg }} />
     </View>
   );

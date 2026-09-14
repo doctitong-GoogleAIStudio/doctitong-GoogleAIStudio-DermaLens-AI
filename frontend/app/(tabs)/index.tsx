@@ -9,6 +9,7 @@ import { useAuth } from "@/src/auth";
 import { useSubscription } from "@/src/billing";
 import { useHistory, useDeleteHistory } from "@/src/history";
 import { HistoryCard } from "@/src/components/HistoryCard";
+import { ReconnectSheet } from "@/src/components/ReconnectSheet";
 import type { HistoryItem } from "@/src/types";
 
 export default function Home() {
@@ -16,11 +17,12 @@ export default function Home() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, needsReconnect } = useAuth();
   const { available: billingAvailable, isSubscribed, freeLeft, canAnalyze } = useSubscription();
   const { data: history = [], isLoading, refetch } = useHistory();
   const deleteItem = useDeleteHistory();
   const [refreshing, setRefreshing] = useState(false);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -54,7 +56,7 @@ export default function Home() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <View>
-          <Text style={styles.brand}>AI Dermatologist</Text>
+          <Text style={styles.brand}>DermaLens AI</Text>
           <Text style={styles.hi} numberOfLines={1}>
             {user ? `Hi, ${user.full_name.split(" ")[0]}` : "AI Skin Lesion Analysis"}
           </Text>
@@ -65,6 +67,14 @@ export default function Home() {
           </Pressable>
         </View>
       </View>
+
+      {needsReconnect && (
+        <Pressable style={styles.reconnectBanner} onPress={() => setReconnectOpen(true)} testID="reconnect-banner">
+          <Ionicons name="cloud-offline-outline" size={18} color={colors.onWarning} />
+          <Text style={styles.reconnectText}>Confirm your password to enable AI analysis</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.onWarning} />
+        </Pressable>
+      )}
 
       {billingAvailable && (
         <Pressable
@@ -134,6 +144,8 @@ export default function Home() {
       >
         <Ionicons name="add" size={32} color={colors.onBrandPrimary} />
       </Pressable>
+
+      <ReconnectSheet visible={reconnectOpen} onClose={() => setReconnectOpen(false)} />
     </View>
   );
 }
@@ -152,6 +164,18 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.brandTertiary,
   },
   planBannerText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onBrandTertiary },
+  reconnectBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.warning,
+  },
+  reconnectText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onWarning },
   header: {
     flexDirection: "row",
     alignItems: "flex-end",

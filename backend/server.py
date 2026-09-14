@@ -250,6 +250,14 @@ async def me(current_user: PublicUser = Depends(get_current_user)):
     return current_user
 
 
+@api_router.get("/auth/email-exists")
+async def email_exists(email: str):
+    """Lets the app tell 'wrong password' apart from 'unknown account' on sign-in.
+    Reveals nothing that /auth/signup's 409 does not already reveal."""
+    doc = await db.users.find_one({"email": normalized_email(email)}, {"_id": 1})
+    return {"exists": bool(doc)}
+
+
 # ---------------------------------------------------------------------------
 # AI Analysis
 # ---------------------------------------------------------------------------

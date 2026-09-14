@@ -132,15 +132,60 @@ export async function localSignUp(fullName: string, emailInput: string, password
 }
 
 export async function localSignIn(emailInput: string, password: string): Promise<AuthUser> {
-  const email = normalizeEmail(emailInput);
-  const account = await readAccountByEmail(email);
+  const account = await verifyAccount(emailInput, password);
   if (!account) throw new Error("Email or password is incorrect.");
-
-  const candidate = await derive(password, account.saltHex, account.iterations);
-  if (candidate !== account.hashHex) throw new Error("Email or password is incorrect.");
-
   await storage.setItem(SESSION_KEY, account.id);
   return publicUser(account);
+}
+
+async function verifyAccount(emailInput: string, password: string): Promise<Account | null> {
+  const email = normalizeEmail(emailInput);
+  const account = await readAccountByEmail(email);
+  if (!account) return null;
+  const candidate = await derive(password, account.saltHex, account.iterations);
+  if (candidate !== account.hashHex) return null;
+  return account;
+}
+
+/** Checks credentials against the on-device store WITHOUT starting a session. */
+export async function localVerify(emailInput: string, password: string): Promise<AuthUser | null> {
+  const account = await verifyAccount(emailInput, password);
+  return account ? publicUser(account) : null;
+}
+
+/**
+ * Creates or refreshes the on-device account for an account that the backend
+ * has authenticated, then starts the session. Used when someone signs in with
+ * an account that was created on the server or on another phone, and when a
+ * legacy local-only account is migrated. The account id is preserved so
+ * nothing keyed to it is lost.
+ */
+export async function localUpsertAccount(
+  fullName: string,
+  emailInput: string,
+  password: string,
+): Promise<AuthUser> {
+  const email = normalizeEmail(emailInput);
+  const name = fullName.trim();
+
+  return serialized(async () => {
+    const existing = await readAccountByEmail(email);
+    const saltHex = hex(await Crypto.getRandomBytesAsync(SALT_BYTES));
+    const account: Account = {
+      id: existing?.id ?? Crypto.randomUUID(),
+      full_name: name || existing?.full_name || email.split("@")[0],
+      email,
+      saltHex,
+      hashHex: await derive(password, saltHex, ITERATIONS),
+      iterations: ITERATIONS,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    };
+    const key = accountKey(email);
+    await writeRecord(key, JSON.stringify(account));
+    await writeRecord(ID_PREFIX + account.id, key);
+    await storage.setItem(SESSION_KEY, account.id);
+    return publicUser(account);
+  });
 }
 
 export async function localGetSession(): Promise<AuthUser | null> {

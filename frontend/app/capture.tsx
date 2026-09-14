@@ -11,6 +11,8 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
 import { ClinicalHistorySheet } from "@/src/components/ClinicalHistorySheet";
+import { ReconnectSheet } from "@/src/components/ReconnectSheet";
+import { useAuth } from "@/src/auth";
 import { analyzeImages } from "@/src/analysis";
 import { useSubscription } from "@/src/billing";
 import { useAddHistory, useUpdateHistory, readHistory } from "@/src/history";
@@ -95,6 +97,7 @@ export default function Capture() {
   const addHistory = useAddHistory();
   const updateHistory = useUpdateHistory();
   const { canAnalyze, countAnalysis } = useSubscription();
+  const { needsReconnect } = useAuth();
 
   const [shots, setShots] = useState<Shot[]>([]);
   const [clinicalHistory, setClinicalHistory] = useState<ClinicalHistory>({});
@@ -104,6 +107,7 @@ export default function Capture() {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(params.action !== "upload");
+  const [reconnectOpen, setReconnectOpen] = useState(false);
   const kickedOff = useRef(false);
 
   const canUseCamera = Platform.OS !== "web" && permission?.granted;
@@ -194,10 +198,19 @@ export default function Capture() {
 
   const analyze = async () => {
     if (shots.length === 0) return;
+    if (needsReconnect) {
+      setReconnectOpen(true);
+      return;
+    }
     if (!canAnalyze) {
       router.push("/paywall");
       return;
     }
+    await runAnalysis();
+  };
+
+  const runAnalysis = async () => {
+    if (shots.length === 0) return;
     setAnalyzing(true);
     setError(null);
     try {
@@ -455,6 +468,14 @@ export default function Capture() {
           <Text style={styles.analyzeSub}>AI is processing, please wait a moment.</Text>
         </View>
       )}
+
+      <ReconnectSheet
+        visible={reconnectOpen}
+        onClose={() => setReconnectOpen(false)}
+        onDone={() => {
+          if (canAnalyze) runAnalysis();
+        }}
+      />
 
       <ClinicalHistorySheet
         visible={historyOpen}

@@ -27,9 +27,7 @@ export async function analyzeImages(
 
   const token = await getToken();
   if (!token) {
-    throw new Error(
-      "Please sign out and sign in again while connected to the internet to enable AI analysis.",
-    );
+    throw new Error("AI analysis is not enabled yet. Confirm your password while connected to the internet.");
   }
 
   const body = {

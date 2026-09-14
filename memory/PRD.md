@@ -83,6 +83,17 @@ GCash QR for payment (owner to upload).
   `recordAudioAndroid: false`, version 1.1.1 / versionCode 121. Verified: backend 14/14 pytest
   + frontend E2E, android bundle contains no "AIza" and no "generativelanguage". [DONE]
 
+- LOGIN FIX + REBRAND (2026-06, v1.1.2 / versionCode 122, name "DermaLens AI"):
+  `signIn` now always calls `POST /api/auth/login` first (so server-only accounts and accounts
+  from another phone work), migrates legacy local-only accounts via `/api/auth/signup`, uses
+  `GET /api/auth/email-exists` to distinguish "wrong password on a known email" from "unknown
+  account", and only falls back to local-only login on a real network failure (`OfflineError`,
+  5xx counts as offline) — which sets `needsReconnect` → yellow Home banner → `ReconnectSheet`
+  (also opened from the capture screen instead of erroring). History uses one global key so a
+  migrated account keeps its scans. About reads the version from `Constants.expoConfig`.
+  New DermaLens AI artwork in icon/adaptive-icon/splash/app-logo/favicon.
+  Verified: iteration 20 — 7/7 frontend cases pass, bundle still free of "AIza"/"generativelanguage". [DONE]
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.

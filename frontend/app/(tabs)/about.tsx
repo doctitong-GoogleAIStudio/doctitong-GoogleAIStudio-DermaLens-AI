@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Constants from "expo-constants";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
@@ -33,6 +34,8 @@ export default function About() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const appName = Constants.expoConfig?.name ?? "DermaLens AI";
+  const appVersion = Constants.expoConfig?.version ?? "";
 
   return (
     <View style={styles.root}>
@@ -48,24 +51,24 @@ export default function About() {
           <View style={styles.logo}>
             <Ionicons name="medkit" size={30} color={colors.onBrandPrimary} />
           </View>
-          <Text style={styles.appName}>AI Dermatologist</Text>
+          <Text style={styles.appName}>{appName}</Text>
           <Text style={styles.tagline}>AI-Powered Skin Lesion Analysis</Text>
         </View>
 
         <Text style={styles.paragraph}>
-          AI Dermatologist provides a preliminary analysis of skin lesions using advanced artificial intelligence.
+          {appName} provides a preliminary analysis of skin lesions using advanced artificial intelligence.
           Upload a photo to receive an AI-powered assessment identifying potential conditions.
         </Text>
 
         <View style={styles.privacy} testID="about-privacy">
           <View style={styles.disclaimerHead}>
             <Ionicons name="lock-closed" size={18} color={colors.brandPrimary} />
-            <Text style={styles.disclaimerTitle}>Your data stays on this phone</Text>
+            <Text style={styles.disclaimerTitle}>Your scans stay on this phone</Text>
           </View>
           <Text style={styles.disclaimerText}>
-            Your account, scan history, notes and reports are stored only on this device — there is no cloud
-            account and no server. Photos are sent to the AI model for the moment of analysis only, and an
-            internet connection is needed for that step alone.
+            Your scan history, notes and reports are stored only on this device. When you run an analysis, the
+            photos are sent over a secure connection to our server for that moment of analysis only — they are not
+            kept there. An internet connection is needed for that step alone.
           </Text>
         </View>
 
@@ -85,7 +88,7 @@ export default function About() {
         <View style={styles.group}>
           <Row icon="person-outline" label="Developed by" value="aivicventures" />
           <View style={styles.divider} />
-          <Row icon="information-circle-outline" label="Version" value="1.0.9" />
+          <Row icon="information-circle-outline" label="Version" value={appVersion} />
         </View>
 
         <Text style={styles.footer}>Powered by Google Gemini</Text>

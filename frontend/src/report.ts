@@ -75,7 +75,7 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
     li { margin-bottom:6px; }
     .disc { background:#FFF7E0; border-left:4px solid #A67C00; padding:12px; border-radius:8px; color:#6b5300; font-size:12px; }
   </style></head><body>
-    <h1>AI Dermatologist</h1>
+    <h1>DermaLens AI</h1>
     <div class="sub">AI-Powered Skin Lesion Analysis &middot; ${esc(item.date)}</div>
     <div>${imgHtml}</div>
     <div class="card"><span class="muted">Image quality</span><div class="b">${esc(d.imageQuality?.score || "")}</div><p class="muted">${esc(d.imageQuality?.feedback || "")}</p></div>
