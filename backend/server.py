@@ -1,6 +1,9 @@
 import os
 import re
 import io
+import time
+import base64
+import binascii
 import hmac
 import hashlib
 import json
@@ -12,16 +15,14 @@ from typing import List, Optional
 import jwt
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
+from fastapi import FastAPI, APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from passlib.context import CryptContext
 from bson import ObjectId
-
-from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, TextDelta, StreamDone
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -37,8 +38,12 @@ JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "43200"))
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+
+# Gemini is called ONLY from here. The key must never reach the mobile bundle.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_TIMEOUT_SECONDS = 90.0
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
@@ -95,8 +100,43 @@ class ClinicalHistoryIn(BaseModel):
     notes: Optional[str] = None
 
 
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+class AnalyzeImageIn(BaseModel):
+    mimeType: str
+    data: str  # raw base64, no "data:" prefix
+
+    @field_validator("mimeType")
+    @classmethod
+    def _check_mime(cls, v: str) -> str:
+        mime = v.strip().lower()
+        if mime not in ALLOWED_IMAGE_MIMES:
+            raise ValueError(f"Unsupported image type '{v}'. Allowed: {', '.join(sorted(ALLOWED_IMAGE_MIMES))}.")
+        return mime
+
+    @field_validator("data")
+    @classmethod
+    def _check_data(cls, v: str) -> str:
+        payload = v.strip()
+        if not payload:
+            raise ValueError("Image data is empty.")
+        if payload.startswith("data:"):
+            raise ValueError("Send raw base64 without the 'data:' prefix.")
+        try:
+            decoded = base64.b64decode(payload, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("Image data is not valid base64.")
+        if not decoded:
+            raise ValueError("Image data is empty.")
+        if len(decoded) > MAX_IMAGE_BYTES:
+            raise ValueError("Each image must be 8 MB or smaller.")
+        return payload
+
+
 class AnalyzeIn(BaseModel):
-    images: List[str] = Field(min_length=1, max_length=6)  # base64 (may include data URI prefix)
+    images: List[AnalyzeImageIn] = Field(min_length=1, max_length=4)
     history: Optional[ClinicalHistoryIn] = None
     viewLabels: Optional[List[str]] = None
 
@@ -144,6 +184,33 @@ def make_activation_key(device_id: str) -> str:
     digest = hmac.new(ACTIVATION_SECRET.encode(), norm.encode(), hashlib.sha256).hexdigest()
     s = digest[:16].upper()
     return "-".join(s[i:i + 4] for i in range(0, 16, 4))
+
+
+class Principal(BaseModel):
+    """Who is calling /api/analyze — a signed-in account or an activated device."""
+    kind: str  # "user" | "device"
+    id: str
+
+
+async def analyze_principal(
+    authorization: Optional[str] = Header(default=None),
+    x_activation_key: Optional[str] = Header(default=None, alias="X-Activation-Key"),
+) -> Principal:
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        user = await get_current_user(token)
+        return Principal(kind="user", id=user.id)
+
+    if x_activation_key:
+        supplied = x_activation_key.strip().upper().replace(" ", "")
+        async for doc in db.activated_devices.find({}, {"device_id": 1}):
+            device_id = doc.get("device_id") or ""
+            if device_id and hmac.compare_digest(supplied, make_activation_key(device_id)):
+                return Principal(kind="device", id=device_id)
+        raise HTTPException(status_code=403, detail="App is not activated.")
+
+    raise HTTPException(status_code=401, detail="Not authenticated",
+                        headers={"WWW-Authenticate": "Bearer"})
 
 
 # ---------------------------------------------------------------------------
@@ -288,45 +355,146 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+GEMINI_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "imageQuality": {
+            "type": "object",
+            "properties": {
+                "score": {"type": "string", "enum": ["Excellent", "Good", "Fair", "Poor"]},
+                "feedback": {"type": "string"},
+            },
+            "required": ["score", "feedback"],
+        },
+        "assessmentPossible": {"type": "boolean"},
+        "moreInfoNeeded": {"type": "array", "items": {"type": "string"}},
+        "mostLikelyDiagnosis": {
+            "type": "object",
+            "properties": {
+                "conditionName": {"type": "string"},
+                "confidence": {"type": "string", "enum": ["High", "Medium", "Low"]},
+                "description": {"type": "string"},
+                "urgency": {
+                    "type": "string",
+                    "enum": ["Routine", "Requires Prompt Attention", "Urgent"],
+                },
+                "urgencyReason": {"type": "string"},
+            },
+            "required": ["conditionName", "confidence", "description", "urgency", "urgencyReason"],
+        },
+        "differentialDiagnoses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "conditionName": {"type": "string"},
+                    "confidence": {"type": "string", "enum": ["High", "Medium", "Low"]},
+                    "description": {"type": "string"},
+                },
+                "required": ["conditionName", "confidence", "description"],
+            },
+        },
+        "redFlags": {"type": "array", "items": {"type": "string"}},
+        "nextSteps": {"type": "array", "items": {"type": "string"}},
+        "disclaimer": {"type": "string"},
+    },
+    "required": [
+        "imageQuality",
+        "assessmentPossible",
+        "moreInfoNeeded",
+        "mostLikelyDiagnosis",
+        "differentialDiagnoses",
+        "redFlags",
+        "nextSteps",
+        "disclaimer",
+    ],
+}
+
+
+async def _log_analysis(principal: Principal, image_count: int, started: float, status_code: int) -> None:
+    try:
+        await db.analysis_logs.insert_one({
+            "principal_kind": principal.kind,
+            "user_id": principal.id if principal.kind == "user" else None,
+            "activation_device_id": principal.id if principal.kind == "device" else None,
+            "image_count": image_count,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "status": status_code,
+            "model": GEMINI_MODEL,
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception as e:  # logging must never break the request
+        logger.error(f"analysis_logs write failed: {e}")
+
+
 @api_router.post("/analyze")
-async def analyze(data: AnalyzeIn, current_user: PublicUser = Depends(get_current_user)):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="AI service not configured.")
+async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_principal)):
+    started = time.monotonic()
+    image_count = len(data.images)
 
-    image_contents = []
-    for img in data.images:
-        b64 = img.split(",", 1)[1] if img.strip().startswith("data:") else img
-        image_contents.append(ImageContent(image_base64=b64))
+    if not GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY is not set in backend/.env")
+        await _log_analysis(principal, image_count, started, 500)
+        raise HTTPException(status_code=500, detail="AI service configuration error.")
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"derm-{current_user.id}-{datetime.now(timezone.utc).timestamp()}",
-        system_message=ANALYSIS_SYSTEM,
-    ).with_model("gemini", GEMINI_MODEL)
-
-    prompt = _build_analysis_prompt(data)
-    message = UserMessage(text=prompt, file_contents=image_contents)
-
-    try:
-        buf = ""
-        async for ev in chat.stream_message(message):
-            if isinstance(ev, TextDelta):
-                buf += ev.content
-            elif isinstance(ev, StreamDone):
-                break
-    except Exception as e:
-        logger.error(f"AI analysis error: {e}")
-        raise HTTPException(status_code=502, detail="The AI service failed. Please try again.")
+    body = {
+        "systemInstruction": {"parts": [{"text": ANALYSIS_SYSTEM}]},
+        "contents": [{
+            "parts": [{"text": _build_analysis_prompt(data)}] + [
+                {"inline_data": {"mime_type": img.mimeType, "data": img.data}} for img in data.images
+            ],
+        }],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": GEMINI_RESPONSE_SCHEMA,
+            "temperature": 0.4,
+        },
+    }
 
     try:
-        result = _extract_json(buf)
+        async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT_SECONDS) as hc:
+            resp = await hc.post(
+                GEMINI_ENDPOINT,
+                headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+                json=body,
+            )
+    except httpx.TimeoutException:
+        logger.error("Gemini request timed out")
+        await _log_analysis(principal, image_count, started, 504)
+        raise HTTPException(status_code=504, detail="The analysis took too long. Please try again.")
+    except httpx.HTTPError as e:
+        logger.error(f"Gemini transport error: {e}")
+        await _log_analysis(principal, image_count, started, 502)
+        raise HTTPException(status_code=502, detail="The AI service is unavailable. Please try again.")
+
+    if resp.status_code != 200:
+        # Google's raw message can leak key/project details — never forward it.
+        logger.error(f"Gemini HTTP {resp.status_code}: {resp.text[:500]}")
+        if resp.status_code in (400, 401, 403):
+            code, detail = 500, "AI service configuration error."
+        elif resp.status_code == 429:
+            code, detail = 429, "AI service is busy. Please try again shortly."
+        else:
+            code, detail = 502, "The AI service is unavailable. Please try again."
+        await _log_analysis(principal, image_count, started, code)
+        raise HTTPException(status_code=code, detail=detail)
+
+    try:
+        payload = resp.json()
+        text = "".join(
+            part.get("text", "")
+            for part in payload["candidates"][0]["content"]["parts"]
+        )
+        result = _extract_json(text)
     except Exception:
-        logger.error(f"Failed to parse AI JSON: {buf[:500]}")
+        logger.error(f"Failed to parse Gemini response: {resp.text[:500]}")
+        await _log_analysis(principal, image_count, started, 502)
         raise HTTPException(status_code=502, detail="The AI returned an invalid response. Please try again.")
 
     result.setdefault("assessmentPossible", True)
     result.setdefault("moreInfoNeeded", [])
     result.setdefault("redFlags", [])
+    await _log_analysis(principal, image_count, started, 200)
     return result
 
 

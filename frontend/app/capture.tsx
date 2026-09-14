@@ -11,7 +11,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
 import { ClinicalHistorySheet } from "@/src/components/ClinicalHistorySheet";
-import { analyzeImages } from "@/src/gemini";
+import { analyzeImages } from "@/src/analysis";
 import { useSubscription } from "@/src/billing";
 import { useAddHistory, useUpdateHistory, readHistory } from "@/src/history";
 import { makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
@@ -26,7 +26,7 @@ const VIEW_LABELS = [
   "Additional view",
 ];
 
-const MAX_SHOTS = 6;
+const MAX_SHOTS = 4;
 const MIN_SIDE = 300;
 const MIN_BASE64 = 9000; // ~7KB of JPEG data — below this the photo carries almost no detail
 
@@ -35,6 +35,7 @@ interface Shot {
   base64: string;
   width: number;
   height: number;
+  mimeType?: string;
 }
 
 function qualityProblem(shot: Shot): string | null {
@@ -135,7 +136,13 @@ export default function Capture() {
           addShots(
             res.assets
               .filter((a) => a.base64)
-              .map((a) => ({ uri: a.uri, base64: a.base64!, width: a.width, height: a.height })),
+              .map((a) => ({
+                uri: a.uri,
+                base64: a.base64!,
+                width: a.width,
+                height: a.height,
+                mimeType: a.mimeType,
+              })),
           );
         }
       } catch {
@@ -202,7 +209,7 @@ export default function Capture() {
       const viewLabels = shots.length > 1 ? shots.map((_, i) => VIEW_LABELS[i] ?? "Additional view") : undefined;
 
       const diagnosis = await analyzeImages(
-        shots.map((s) => s.base64),
+        shots.map((s) => ({ base64: s.base64, mimeType: s.mimeType })),
         { history: Object.keys(filled).length ? (filled as ClinicalHistory) : undefined, viewLabels },
       );
 

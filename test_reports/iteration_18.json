@@ -1,0 +1,33 @@
+{
+  "summary": "Full backend + frontend verification of the Gemini-key-security fix. Backend: 14/14 pytest cases pass (auth 401/signup 201/login 200/me 200/duplicate 409; /api/analyze auth: no header -> 401, bad activation key -> 403 'App is not activated.'; validation -> 422 for unsupported mime image/gif, 'data:' prefix, 5 images, 0 images, non-base64, >8 MiB decoded; valid JWT + JPEG -> 200 in ~17s with all 8 required keys imageQuality/assessmentPossible/moreInfoNeeded/mostLikelyDiagnosis/differentialDiagnoses/redFlags/nextSteps/disclaimer; a fresh analysis_logs Mongo row is written per call with principal_kind='user', user_id, image_count=1, latency_ms>0, status=200, model='gemini-3.1-pro-preview'; response body never contains 'AIza'/'generativelanguage'/'x-goog-api-key'). Frontend: full web-preview E2E — fresh signup 201 lands on Home; FAB -> Assessment -> 'Upload One Photo' opens the browser file picker; selecting a valid JPEG advances to /capture and 'Analyze Photo' fires POST /api/analyze -> 200 (auth header present because signup returned a JWT via syncServerSession), Result screen renders with 'Most likely' + 'More Information May Help' + 'Start New Analysis'. NO request to generativelanguage/googleapis was made by the browser. Logout -> /login; re-login triggers POST /api/auth/login -> 200 (token re-obtained). Enhanced screen shows 'Recommended images (2–4, none are required)'. About tab shows Version, Paywall route reachable via testID paywall-close, no meaningful console errors. Total real Gemini calls used: 2 (1 backend + 1 frontend), well within the 2-3 budget.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18_analyze_security.py",
+    "/app/test_reports/pytest/iteration18_analyze.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py /api/analyze: mapping of Google upstream errors is correct — 400/401/403 -> 500 'AI service configuration error.', 429 -> 429, timeout -> 504, transport error -> 502, else -> 502; Google's raw resp.text is only written to backend logger, never returned to the client. Verified by inspecting mapped detail text in 401/403/422 responses.",
+    "server.py AnalyzeIn: min_length=1/max_length=4 on images enforced (5 images and 0 images both correctly 422). AnalyzeImageIn.mimeType and .data validators reject image/gif, 'data:' prefixes, non-base64, and decoded byte lengths > 8 MiB.",
+    "server.py analyze_principal: JWT branch reuses get_current_user; activation-key branch iterates activated_devices with hmac.compare_digest and returns 403 'App is not activated.' when nothing matches — exact contract requested.",
+    "server.py _log_analysis is wrapped in try/except so logging failures never break the request; a row is written on every code path (success, 500 config error, 504 timeout, 502 transport, non-200 upstream).",
+    "frontend/src/analysis.ts (replacement for gemini.ts) posts to `${EXPO_PUBLIC_BACKEND_URL}/api/analyze` with `Authorization: Bearer <token>` — verified from browser network trace. frontend/src/api.ts syncServerSession() is called from src/auth.tsx on both signup and login and stores the JWT under 'api_access_token' via storage.secureSet (web falls back to AsyncStorage/IndexedDB). No Gemini key anywhere in the mobile bundle (grep of frontend/ found zero occurrences of 'gemini', 'AIza', 'generativelanguage', 'EXPO_PUBLIC_GEMINI_API_KEY').",
+    "frontend/app/assessment.tsx line 98 correctly reads 'Recommended images (2–4, none are required)' — matches the reduced 1–4 image cap.",
+    "app.json (per request) sets version 1.1.1, versionCode 121, blockedPermissions RECORD_AUDIO + SYSTEM_ALERT_WINDOW, expo-camera recordAudioAndroid:false — not tested at runtime on web preview (Android-only), but present in the manifest."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18_analyze_security.py (new pytest suite for this iteration)"
+  ],
+  "success_rate": {"backend": "14/14 (100%)", "frontend": "100% — all requested regression checks passed"},
+  "seed_data_creation": "Created 3 ephemeral backend accounts for testing (via /api/auth/signup): iter18-<ts>@example.com, analyze-<ts>@example.com, relog-<ts>@example.com — all password 'secret123'. No shared/persistent data used.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend GEMINI_API_KEY is live and real analyses cost money — the pytest suite intentionally makes only ONE real /api/analyze call (in TestAnalyzeSuccess.test_valid_jwt_returns_200_with_all_keys_and_logs). Everything else uses validation-only paths (422/401/403) which don't hit Gemini. The web preview cannot use the camera and does NOT gate the free-analysis paywall (store.available is false on web), so analyses are unlimited during preview testing. Frontend JWT is stored in AsyncStorage under key 'api_access_token' — on web this ends up in IndexedDB (not localStorage), so scripted introspection must go through the app's api client, not localStorage. Successful signup POSTs to /api/auth/signup (201) via syncServerSession; if the email already exists it silently retries with /api/auth/login (409 -> login). Logout on web fires window.confirm — Playwright must dialog.accept().",
+  "rca_of_issue": "N/A — no regression. The Gemini-key security fix is correctly implemented on both backend and frontend: the API key never leaves backend/.env; all AI traffic is proxied via /api/analyze under JWT/activation-key auth; Google's raw error text is never forwarded; validation, size caps, and logging behave as specified."
+}

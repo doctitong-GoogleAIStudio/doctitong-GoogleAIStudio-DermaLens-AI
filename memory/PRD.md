@@ -71,6 +71,18 @@ GCash QR for payment (owner to upload).
   acknowledged client-side; gating is disabled on web/iOS where Play cannot run.
   Details + remaining Play Console steps: `/app/memory/google_play_billing.md`. [DONE 2026-06]
 
+- SECURITY (2026-06): Gemini moved behind the backend. The key used to ship in the mobile
+  bundle (`EXPO_PUBLIC_GEMINI_API_KEY` + direct `generativelanguage.googleapis.com` calls).
+  Now: `POST /api/analyze` calls Gemini with httpx using `GEMINI_API_KEY`/`GEMINI_MODEL` from
+  `backend/.env`; auth = JWT Bearer (or `X-Activation-Key` against `activated_devices`);
+  1–4 images, ≤8 MB each, mimes jpeg/png/webp/heic/heif; Google's raw errors never forwarded;
+  every call logged to `analysis_logs`. Frontend `src/gemini.ts` deleted → `src/analysis.ts`
+  posts to the backend; local accounts are mirrored to `/api/auth/*` (see `src/api.ts`
+  `syncServerSession`) so the app holds a JWT while keeping offline sign-in.
+  Play review items: `blockedPermissions` RECORD_AUDIO + SYSTEM_ALERT_WINDOW,
+  `recordAudioAndroid: false`, version 1.1.1 / versionCode 121. Verified: backend 14/14 pytest
+  + frontend E2E, android bundle contains no "AIza" and no "generativelanguage". [DONE]
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.

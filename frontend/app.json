@@ -2,7 +2,7 @@
   "expo": {
     "name": "AI Dermatologist",
     "slug": "frontend",
-    "version": "1.0.9",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -21,8 +21,13 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.emergent.aidermatologistapp.r2pygs",
+      "versionCode": 121,
       "permissions": [
         "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {
@@ -51,7 +56,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Take photos of skin lesions for AI analysis"
+          "cameraPermission": "Take photos of skin lesions for AI analysis",
+          "recordAudioAndroid": false
         }
       ],
       [

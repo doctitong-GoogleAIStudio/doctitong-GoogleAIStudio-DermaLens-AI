@@ -12,8 +12,6 @@ const RECOMMENDED_VIEWS = [
   "Left-angle view",
   "Right-angle view",
   "Close-up",
-  "Wider anatomical view",
-  "Optional additional view",
 ];
 
 export default function Assessment() {
@@ -97,7 +95,7 @@ export default function Assessment() {
             its assessment.
           </Text>
 
-          <Text style={styles.listTitle}>Recommended images (2–6, none are required)</Text>
+          <Text style={styles.listTitle}>Recommended images (2–4, none are required)</Text>
           {RECOMMENDED_VIEWS.map((v) => (
             <View key={v} style={styles.listRow}>
               <Ionicons name="ellipse" size={6} color={colors.brandPrimary} />
