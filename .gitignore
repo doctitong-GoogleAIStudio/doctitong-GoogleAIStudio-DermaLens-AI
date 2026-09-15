@@ -86,3 +86,9 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Android signing material (never commit)
+*.keystore
+*.keystore.txt
+*.jks
+
