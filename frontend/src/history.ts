@@ -17,7 +17,7 @@ export async function readHistory(): Promise<HistoryItem[]> {
   }
 }
 
-async function writeHistory(items: HistoryItem[]): Promise<void> {
+export async function writeHistory(items: HistoryItem[]): Promise<void> {
   await storage.setItem(HISTORY_KEY, JSON.stringify(items));
 }
 

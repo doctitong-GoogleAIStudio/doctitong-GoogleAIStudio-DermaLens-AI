@@ -10,17 +10,29 @@ export interface PlanOption {
   period: string;
 }
 
+export interface ActivePlanInfo {
+  productId: string;
+  /** "Monthly" | "Yearly" | the raw product id if unknown */
+  title: string;
+  autoRenewing: boolean;
+  /** When the subscription was first purchased (ms). */
+  since?: number;
+}
+
 /** Shape shared by the Android (real) and non-Android (no-op) billing modules. */
 export interface StoreBilling {
   /** True only where Google Play Billing can actually run. */
   available: boolean;
   connected: boolean;
   isSubscribed: boolean;
+  activePlan: ActivePlanInfo | null;
   plans: PlanOption[];
   loadingPlans: boolean;
   isPurchasing: boolean;
   error: string | null;
   buy: (plan: PlanKey) => Promise<void>;
   refresh: () => Promise<void>;
+  /** Opens the Google Play subscription settings for this app. */
+  openManage: () => void;
   clearError: () => void;
 }

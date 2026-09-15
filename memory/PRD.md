@@ -94,6 +94,18 @@ GCash QR for payment (owner to upload).
   New DermaLens AI artwork in icon/adaptive-icon/splash/app-logo/favicon.
   Verified: iteration 20 — 7/7 frontend cases pass, bundle still free of "AIza"/"generativelanguage". [DONE]
 
+- v1.1.2 features (2026-06): RATE LIMIT on `/api/analyze` — max `ANALYSES_PER_HOUR` (default 10)
+  successful analyses per hour per user/device, counted from `analysis_logs`, 429 with a plain
+  message; startup creates the supporting indexes. SUBSCRIPTION STATUS in About ("Your plan" with
+  Premium/Monthly-Yearly + auto-renew state from `activeSubscriptions`, "Manage subscription" opens
+  the Play page via `expo-application` id; Android only). BACKUP & RESTORE (`app/backup.tsx`,
+  `src/backup/*`): full export of every scan + photos into ONE file, sealed with the user's password
+  (PBKDF2-SHA256 60k → XChaCha20-Poly1305, `@noble/ciphers`); restore merges by scan id (same id
+  replaced, new id added). Platform file plumbing split: `src/backup/file.ts` (native: expo-file-system
+  legacy + expo-sharing + expo-document-picker) vs `file.web.ts` (Blob download + fetch/FileReader).
+  Password reset was explicitly declined by the user. Verified: iteration 21 — backend 5/5 + full web
+  export→restore round trip, wrong-password and non-backup-file errors. [DONE]
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.

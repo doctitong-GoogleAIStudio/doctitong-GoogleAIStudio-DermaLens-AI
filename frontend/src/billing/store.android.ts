@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, Linking } from "react-native";
+import * as Application from "expo-application";
 import { useIAP, isUserCancelledError, type Purchase } from "expo-iap";
 
 import { PRODUCT_IDS, SUBSCRIPTION_IDS } from "./products";
 import { clearEntitlement, readEntitlement, writeEntitlement } from "./localState";
-import type { PlanKey, PlanOption, StoreBilling } from "./types";
+import type { ActivePlanInfo, PlanKey, PlanOption, StoreBilling } from "./types";
 
 /**
  * Google Play Billing (no RevenueCat, no server).
@@ -33,6 +34,8 @@ export function useStoreBilling(): StoreBilling {
     requestPurchase,
     finishTransaction,
     hasActiveSubscriptions,
+    getActiveSubscriptions,
+    activeSubscriptions,
     getAvailablePurchases,
     availablePurchases,
   } = useIAP({
@@ -73,11 +76,12 @@ export function useStoreBilling(): StoreBilling {
     try {
       const active = await hasActiveSubscriptions(SUBSCRIPTION_IDS);
       setIsSubscribed(active);
+      await getActiveSubscriptions(SUBSCRIPTION_IDS);
       if (!active) await clearEntitlement();
     } catch {
       // Offline / Play unavailable — keep the cached state.
     }
-  }, [connected, hasActiveSubscriptions]);
+  }, [connected, hasActiveSubscriptions, getActiveSubscriptions]);
 
   useEffect(() => {
     if (!connected) return;
@@ -157,16 +161,43 @@ export function useStoreBilling(): StoreBilling {
     [requestPurchase, subscriptions],
   );
 
+  const activePlan = useMemo<ActivePlanInfo | null>(() => {
+    const sub = activeSubscriptions.find((s) => SUBSCRIPTION_IDS.includes(s.productId) && s.isActive);
+    if (!sub) return null;
+    return {
+      productId: sub.productId,
+      title:
+        sub.productId === PRODUCT_IDS.monthly
+          ? "Monthly"
+          : sub.productId === PRODUCT_IDS.yearly
+            ? "Yearly"
+            : sub.productId,
+      autoRenewing: sub.autoRenewingAndroid ?? true,
+      since: sub.transactionDate,
+    };
+  }, [activeSubscriptions]);
+
+  const openManage = useCallback(() => {
+    const id = activePlan?.productId ?? PRODUCT_IDS.monthly;
+    const pkg = Application.applicationId ?? "";
+    const url = pkg
+      ? `https://play.google.com/store/account/subscriptions?sku=${id}&package=${pkg}`
+      : "https://play.google.com/store/account/subscriptions";
+    Linking.openURL(url).catch(() => {});
+  }, [activePlan]);
+
   return {
     available: true,
     connected,
     isSubscribed,
+    activePlan,
     plans,
     loadingPlans: connected && plans.length === 0,
     isPurchasing,
     error,
     buy,
     refresh,
+    openManage,
     clearError: () => setError(null),
   };
 }

@@ -11,12 +11,14 @@ export function useStoreBilling(): StoreBilling {
     available: false,
     connected: false,
     isSubscribed: false,
+    activePlan: null,
     plans: [],
     loadingPlans: false,
     isPurchasing: false,
     error: null,
     buy: async () => {},
     refresh: async () => {},
+    openManage: () => {},
     clearError: () => {},
   };
 }

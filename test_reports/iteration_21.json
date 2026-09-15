@@ -1,0 +1,33 @@
+{
+  "summary": "DermaLens AI v1.1.2 - Rate limiting + About subscription/data groups + Backup & restore. All 5 backend pytest cases pass (rate limit hit at 10, exact detail string, gate reopens after cleanup, user A/B isolation, indexes on user_id+created_at and activation_device_id+created_at). Full frontend round trip on web preview passes: About shows 'Your plan' -> Free / 'Unlimited on this device' with NO manage/see-plans row (correct for web), 'Your data' -> Backup & restore navigates to /backup, version 1.1.2 and aivicventures present. Backup export: short-password and mismatched-password errors correct, 0-scans state disables submit and shows the hint, happy path downloads a valid dermalens-backup JSON envelope (format/version/scans/kdf.salt/nonce/payload) whose payload does NOT leak plaintext scan text. Backup restore: wrong password -> 'Wrong password, or the backup file is damaged.', non-backup JSON and random text -> 'That file is not a DermaLens backup.', happy path -> 'Restored 1 scan - 1 new, 0 updated.' and the seeded SEED-1 scan reappears on Home. Served bundle contains no 'AIza' and no 'generativelanguage'. /paywall route exists and is auth-guarded. No pageerrors during any flow (only a benign 'shadow* style props are deprecated' warning from a 3rd-party lib).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "Console warning 'shadow* style props are deprecated. Use boxShadow.' fires on the login/signup screen. Not blocking, but should be migrated to boxShadow to be forward compatible with RN Web / RN 0.76+."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration21_rate_limit.py",
+    "/app/test_reports/pytest/iteration21_rate_limit.xml"
+  ],
+  "action_items": [
+    "Optional: migrate `shadow*` style props to `boxShadow` to silence the RN Web deprecation warning (cosmetic, not a bug)."
+  ],
+  "critical_code_review_comments": [
+    "server.py analyze() correctly counts only status=200 rows in the last hour before ever calling Gemini, so a stolen token cannot drain the AI budget.",
+    "Startup creates the two required compound indexes on analysis_logs.",
+    "crypto.ts uses PBKDF2-SHA256 60k -> XChaCha20-Poly1305 with random 16-byte salt and 24-byte nonce; wrong-password/tampered payloads are caught by the AEAD tag and mapped to the required user-facing string.",
+    "About screen only renders manage/see-plans rows when billingAvailable is true (Android), matching the spec that the web build shows Free / 'Unlimited on this device' and no billing rows.",
+    "backup.tsx disables submit and shows the hint when history is empty; validation for short (>=8) and mismatched passwords fires client-side before touching crypto - matches spec exactly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Two throw-away signup users per run + 10 seeded analysis_logs rows (marked _test_seed:true) were created and CLEANED UP at end. On the web preview a single HistoryItem (id SEED-1) was injected via localStorage.diagnosis_history to avoid burning a real Gemini call for the backup round trip.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The /api/analyze rate-limit path is fully covered by /app/backend/tests/test_iteration21_rate_limit.py (pytest) - it needs MONGO_URL/DB_NAME from /app/backend/.env (auto-read) and hits the ingress via EXPO_PUBLIC_BACKEND_URL. On the web preview the way to seed history without a real analysis is: window.localStorage.setItem('diagnosis_history', JSON.stringify(JSON.stringify(itemsArray))) - the double-stringify is because src/utils/storage wraps values in JSON.stringify. expo-document-picker on web fires a normal file input, so page.expect_file_chooser + fc.set_files works cleanly for restore.",
+  "rca_of_issue": "N/A - no bugs found. All three v1.1.2 features (rate limit, subscription/data About rows, Backup & restore) work end-to-end."
+}

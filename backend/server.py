@@ -44,6 +44,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
 GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 90.0
+# A stolen token must not be able to drain the AI budget.
+ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
@@ -439,6 +441,15 @@ async def _log_analysis(principal: Principal, image_count: int, started: float, 
 async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_principal)):
     started = time.monotonic()
     image_count = len(data.images)
+
+    field = "user_id" if principal.kind == "user" else "activation_device_id"
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent = await db.analysis_logs.count_documents({field: principal.id, "status": 200, "created_at": {"$gte": since}})
+    if recent >= ANALYSES_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You have reached the limit of {ANALYSES_PER_HOUR} analyses per hour. Please try again later.",
+        )
 
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set in backend/.env")
@@ -862,6 +873,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
+    # Keeps the hourly rate-limit count fast as the log grows.
+    await db.analysis_logs.create_index([("user_id", 1), ("created_at", -1)])
+    await db.analysis_logs.create_index([("activation_device_id", 1), ("created_at", -1)])
 
 
 @app.on_event("shutdown")

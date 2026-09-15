@@ -1,8 +1,10 @@
 import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
+import { useSubscription } from "@/src/billing";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 function Row({
@@ -36,6 +38,18 @@ export default function About() {
   const insets = useSafeAreaInsets();
   const appName = Constants.expoConfig?.name ?? "DermaLens AI";
   const appVersion = Constants.expoConfig?.version ?? "";
+  const router = useRouter();
+  const { available: billingAvailable, isSubscribed, activePlan, freeLeft, openManage } = useSubscription();
+
+  const planValue = isSubscribed
+    ? activePlan
+      ? activePlan.autoRenewing
+        ? "Renews automatically"
+        : "Cancelled · active until period ends"
+      : "Active"
+    : billingAvailable
+      ? `${freeLeft} free analysis left`
+      : "Unlimited on this device";
 
   return (
     <View style={styles.root}>
@@ -82,6 +96,46 @@ export default function About() {
             and is not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice
             of your physician or qualified health provider.
           </Text>
+        </View>
+
+        <Text style={styles.groupLabel}>Your plan</Text>
+        <View style={styles.group}>
+          <Row
+            icon={isSubscribed ? "shield-checkmark-outline" : "sparkles-outline"}
+            label={isSubscribed ? `Premium${activePlan ? ` · ${activePlan.title}` : ""}` : "Free"}
+            value={planValue}
+            testID="about-plan"
+          />
+          {billingAvailable && (
+            <>
+              <View style={styles.divider} />
+              {isSubscribed ? (
+                <Row
+                  icon="open-outline"
+                  label="Manage subscription"
+                  onPress={openManage}
+                  testID="about-manage-subscription"
+                />
+              ) : (
+                <Row
+                  icon="arrow-up-circle-outline"
+                  label="See premium plans"
+                  onPress={() => router.push("/paywall")}
+                  testID="about-see-plans"
+                />
+              )}
+            </>
+          )}
+        </View>
+
+        <Text style={styles.groupLabel}>Your data</Text>
+        <View style={styles.group}>
+          <Row
+            icon="save-outline"
+            label="Backup & restore"
+            onPress={() => router.push("/backup")}
+            testID="about-backup"
+          />
         </View>
 
         <Text style={styles.groupLabel}>Information</Text>
