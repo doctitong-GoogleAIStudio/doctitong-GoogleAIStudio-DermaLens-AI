@@ -95,3 +95,6 @@ signing.properties
 keystore.properties
 *.keystore.txt
 *upload-cert*.pem
+.env
+.env.*
+*.env
