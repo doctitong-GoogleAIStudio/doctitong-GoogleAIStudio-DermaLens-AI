@@ -23,7 +23,7 @@ the next upload. See the DERMALENS AI SIGNING REPORT delivered with this change.
 ## Signing a release without secrets in Git
 
 ```
-pwsh scripts/sign-release.ps1 -Input "app-release.aab" -Output "DermaLens AI v1.1.3.aab"
+pwsh scripts/sign-release.ps1 -Path "app-release.aab" -Output "DermaLens AI v1.1.3.aab"
 ```
 
 `scripts/sign-release.ps1` takes credentials from `DERMALENS_KEYSTORE`, `DERMALENS_KEYSTORE_PASS`,

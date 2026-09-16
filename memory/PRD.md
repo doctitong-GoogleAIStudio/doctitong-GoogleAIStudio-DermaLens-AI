@@ -122,6 +122,12 @@ GCash QR for payment (owner to upload).
   names, API root, activation tool title). Package id / keystore unchanged. Docs:
   `docs/ACCOUNT-DELETION-AND-SUBSCRIPTIONS.md`. Backend tests: `tests/test_iteration22_account_deletion.py`.
 
+- FREE ANALYSIS IS ACCOUNT-BOUND (2026-09-16): the 1-free-analysis counter used to live only in
+  AsyncStorage, so uninstall/reinstall reset it. Now `GET /api/billing/usage` counts status-200
+  `analysis_logs` per user; `SubscriptionProvider` syncs on sign-in / reconnect / foreground / after
+  each analysis and keeps `max(deviceCount, accountCount)` (device floor still blocks multi-account
+  abuse on one phone). Backend `FREE_ANALYSES` env (default 1) must match `products.ts`.
+
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.
 2. Add history item delete + pull-to-refresh.
