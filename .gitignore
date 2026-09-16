@@ -92,3 +92,9 @@ credentials.json
 *.keystore.txt
 *.jks
 
+
+# Release signing (see docs/SIGNING.md) — credentials live outside Git
+signing.properties
+keystore.properties
+*.keystore.txt
+*upload-cert*.pem

@@ -1,0 +1,7 @@
+# Copy to scripts/signing.properties (gitignored) OR export the DERMALENS_* environment variables.
+# NEVER commit the filled-in file. Values are read by scripts/sign-release.ps1.
+keystore=C:/path/outside/the/repo/ai-dermatologist-release.keystore
+keyAlias=aidermatologist
+storePassword=
+# leave empty if the key password equals the keystore password
+keyPassword=
