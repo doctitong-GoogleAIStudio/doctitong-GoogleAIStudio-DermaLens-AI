@@ -6,7 +6,15 @@ import { storage } from "@/src/utils/storage";
  * always the source of truth (see src/billing/store.android.ts).
  */
 
+// Pre-1.1.5 this single key held the counter for the whole DEVICE, which meant the
+// first account to spend its free analysis left a floor that every later account
+// inherited (and Android auto-backup restored it after a reinstall). The counter is
+// now stored per account — `billing_free_analyses_used:<email>` — so each account
+// gets the free analysis the backend says it still has. The bare key is only used
+// when nobody is signed in (activation-key path).
 const USED_KEY = "billing_free_analyses_used";
+const usedKeyFor = (account?: string | null) =>
+  account ? `${USED_KEY}:${account.trim().toLowerCase()}` : USED_KEY;
 const ENTITLEMENT_KEY = "billing_entitlement";
 // Set when a subscription Play used to report is no longer active, so the app can say "expired".
 const LAPSED_KEY = "billing_lapsed";
@@ -16,26 +24,28 @@ interface EntitlementSnapshot {
   checkedAt: number;
 }
 
-export async function readUsedAnalyses(): Promise<number> {
-  const raw = await storage.getItem<number>(USED_KEY, 0);
+export async function readUsedAnalyses(account?: string | null): Promise<number> {
+  const raw = await storage.getItem<number>(usedKeyFor(account), 0);
   return typeof raw === "number" && raw > 0 ? raw : 0;
 }
 
-export async function recordAnalysisUsed(): Promise<number> {
-  const next = (await readUsedAnalyses()) + 1;
-  await storage.setItem(USED_KEY, next);
+export async function recordAnalysisUsed(account?: string | null): Promise<number> {
+  const next = (await readUsedAnalyses(account)) + 1;
+  await storage.setItem(usedKeyFor(account), next);
   return next;
 }
 
 /**
- * Raises the on-device counter to what the account has used on the server.
- * Never lowers it: the device count also guards against several accounts
- * sharing one phone to collect several free analyses.
+ * Aligns this account's on-device counter with what the backend has logged for the
+ * SAME account. It never lowers that account's own count, so an analysis counted
+ * while offline is not forgotten — but because the key is per account, a different
+ * (or brand new) account always starts from its own server count instead of
+ * inheriting whatever the previous account on this phone had spent.
  */
-export async function reconcileUsedAnalyses(serverUsed: number): Promise<number> {
-  const local = await readUsedAnalyses();
+export async function reconcileUsedAnalyses(serverUsed: number, account?: string | null): Promise<number> {
+  const local = await readUsedAnalyses(account);
   const merged = Math.max(local, serverUsed);
-  if (merged !== local) await storage.setItem(USED_KEY, merged);
+  if (merged !== local) await storage.setItem(usedKeyFor(account), merged);
   return merged;
 }
 

@@ -28,19 +28,32 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const store = useStoreBilling();
   const { user, needsReconnect } = useAuth();
   const [used, setUsed] = useState(0);
+  const [allowance, setAllowance] = useState(FREE_ANALYSES);
+  // The counter lives per account, so it must be re-read whenever the signed-in
+  // account changes (sign out / switch account), never carried over.
+  const account = user?.email ?? null;
 
   useEffect(() => {
-    readUsedAnalyses().then(setUsed);
-  }, []);
+    let alive = true;
+    readUsedAnalyses(account).then((v) => {
+      if (alive) setUsed(v);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [account]);
 
-  // The free analysis belongs to the ACCOUNT: the backend counts every
-  // successful analysis, so a reinstall (which wipes AsyncStorage) or a fresh
-  // sign-in cannot hand out another one. The device counter is kept as a floor.
+  // The free analysis belongs to the ACCOUNT: the backend counts every successful
+  // analysis for that account, so a reinstall (which wipes AsyncStorage) or a fresh
+  // sign-in cannot hand out another one. The on-device counter is only that
+  // account's offline cache — it is no longer a device-wide floor, which used to
+  // make every new account on the phone start with its free analysis already spent.
   const syncWithAccount = useCallback(async () => {
     if (!user) return;
     const remote = await serverUsage();
     if (!remote) return; // offline / no token yet — keep what the device knows
-    setUsed(await reconcileUsedAnalyses(remote.analysesUsed));
+    if (remote.freeAnalyses > 0) setAllowance(remote.freeAnalyses);
+    setUsed(await reconcileUsedAnalyses(remote.analysesUsed, user.email));
   }, [user]);
 
   useEffect(() => {
@@ -57,12 +70,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [syncWithAccount]);
 
   const countAnalysis = useCallback(async () => {
-    setUsed(await recordAnalysisUsed());
+    setUsed(await recordAnalysisUsed(account));
     // The server already logged this analysis; pull its count so both agree.
     syncWithAccount();
-  }, [syncWithAccount]);
+  }, [account, syncWithAccount]);
 
-  const freeLeft = Math.max(0, FREE_ANALYSES - used);
+  const freeLeft = Math.max(0, allowance - used);
   // Where Play Billing cannot run there is no way to subscribe, so gating is off.
   const canAnalyze = !store.available || store.isSubscribed || freeLeft > 0;
 
