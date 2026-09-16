@@ -1,0 +1,319 @@
+{
+  "priority1_billing_usage": [
+    {
+      "test": "GET /api/billing/usage without auth returns 401",
+      "passed": true,
+      "details": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}"
+      }
+    },
+    {
+      "test": "GET /api/billing/usage with token returns 200 with correct initial values",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "analyses_used": 0,
+        "free_analyses": 1,
+        "expected": "analyses_used=0, free_analyses=1",
+        "full_response": {
+          "analyses_used": 0,
+          "free_analyses": 1
+        }
+      }
+    },
+    {
+      "test": "Counter increments after inserting analysis_logs doc",
+      "passed": true,
+      "details": {
+        "analyses_used": 1,
+        "expected": 1,
+        "inserted_doc_id": "6aaac1674663b00428bf0445"
+      }
+    }
+  ],
+  "priority2_auth": [
+    {
+      "test": "POST /api/auth/signup returns 201 with token and user",
+      "passed": true,
+      "details": {
+        "status": 201,
+        "has_token": true,
+        "has_user": true
+      }
+    },
+    {
+      "test": "POST /api/auth/signup returns 409 for duplicate email",
+      "passed": true,
+      "details": {
+        "status": 409
+      }
+    },
+    {
+      "test": "POST /api/auth/signup returns 422 for invalid email",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/auth/signup returns 422 for password < 6 chars",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/auth/login returns 200 with correct credentials",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "has_token": true
+      }
+    },
+    {
+      "test": "POST /api/auth/login returns 401 with wrong password",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "POST /api/auth/login returns 401 for unknown email",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "GET /api/auth/me returns 200 with valid token",
+      "passed": true,
+      "details": {
+        "status": 200
+      }
+    },
+    {
+      "test": "GET /api/auth/me returns 401 without token",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "GET /api/auth/me returns 401 with garbage token",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "GET /api/auth/email-exists returns true for existing account",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "exists": true
+      }
+    },
+    {
+      "test": "GET /api/auth/email-exists returns false for random email",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "exists": false
+      }
+    }
+  ],
+  "priority3_device": [
+    {
+      "test": "POST /api/device/request-activation returns 401 without token",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "POST /api/device/request-activation returns 200 with token",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "emailed": true,
+        "note": "emailed:false is acceptable"
+      }
+    },
+    {
+      "test": "POST /api/device/activate returns 400 for wrong key",
+      "passed": true,
+      "details": {
+        "status": 400
+      }
+    },
+    {
+      "test": "POST /api/device/activate returns 200 with correct key",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "activated": true,
+        "key_used": "9657-57A7-8498-4564"
+      }
+    },
+    {
+      "test": "GET /api/device/status returns activated:true for activated device",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "activated": true
+      }
+    },
+    {
+      "test": "GET /api/device/status returns activated:false for unknown device",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "activated": false
+      }
+    }
+  ],
+  "priority4_account_deletion": [
+    {
+      "test": "GET /api/account-deletion returns 200 HTML",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "content_type": "text/html; charset=utf-8"
+      }
+    },
+    {
+      "test": "GET /api/privacy-policy returns 200 HTML",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "content_type": "text/html; charset=utf-8"
+      }
+    },
+    {
+      "test": "POST /api/account/delete returns 401 with wrong password",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "POST /api/account/delete succeeds with correct password",
+      "passed": true,
+      "details": {
+        "status": 200
+      }
+    },
+    {
+      "test": "POST /api/account-deletion returns 404 for unknown email",
+      "passed": true,
+      "details": {
+        "status": 404
+      }
+    },
+    {
+      "test": "POST /api/account-deletion returns 401 for wrong password",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "POST /api/account-deletion/request returns 202",
+      "passed": true,
+      "details": {
+        "status": 202
+      }
+    }
+  ],
+  "priority5_misc": [
+    {
+      "test": "GET /api/ returns {\"message\": \"DermaLens AI API\"}",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "data": {
+          "message": "DermaLens AI API"
+        }
+      }
+    },
+    {
+      "test": "GET /api/activation-tool returns 200 HTML",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "content_type": "text/html; charset=utf-8"
+      }
+    },
+    {
+      "test": "POST /api/report/pdf returns 200 with content-type application/pdf",
+      "passed": false,
+      "details": {
+        "status": 500,
+        "content_type": "text/plain; charset=utf-8"
+      }
+    },
+    {
+      "test": "POST /api/billing/subscription returns {\"configured\": false}",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "data": {
+          "configured": false
+        }
+      }
+    }
+  ],
+  "priority6_analyze": [
+    {
+      "test": "POST /api/analyze returns 401 without auth",
+      "passed": true,
+      "details": {
+        "status": 401
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 403 with bogus activation key",
+      "passed": true,
+      "details": {
+        "status": 403
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 422 for data with \"data:\" prefix",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 422 for non-base64 garbage",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 422 for unsupported mimeType (image/gif)",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 422 for empty images array",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    },
+    {
+      "test": "POST /api/analyze returns 422 for more than 4 images",
+      "passed": true,
+      "details": {
+        "status": 422
+      }
+    }
+  ],
+  "errors": []
+}

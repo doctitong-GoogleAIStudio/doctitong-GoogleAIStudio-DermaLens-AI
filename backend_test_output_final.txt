@@ -1,0 +1,95 @@
+================================================================================
+DermaLens AI Backend Regression Test Suite
+v1.1.4 - Commit 073af9c
+================================================================================
+
+================================================================================
+PRIORITY 1: GET /api/billing/usage (NEW v1.1.4 endpoint)
+================================================================================
+✅ PASS: GET /api/billing/usage without auth returns 401
+✅ PASS: GET /api/billing/usage with token returns 200 with correct initial values
+✅ PASS: Counter increments after inserting analysis_logs doc
+
+================================================================================
+PRIORITY 2: Auth regression
+================================================================================
+✅ PASS: POST /api/auth/signup returns 201 with token and user
+✅ PASS: POST /api/auth/signup returns 409 for duplicate email
+✅ PASS: POST /api/auth/signup returns 422 for invalid email
+✅ PASS: POST /api/auth/signup returns 422 for password < 6 chars
+✅ PASS: POST /api/auth/login returns 200 with correct credentials
+✅ PASS: POST /api/auth/login returns 401 with wrong password
+✅ PASS: POST /api/auth/login returns 401 for unknown email
+✅ PASS: GET /api/auth/me returns 200 with valid token
+✅ PASS: GET /api/auth/me returns 401 without token
+✅ PASS: GET /api/auth/me returns 401 with garbage token
+✅ PASS: GET /api/auth/email-exists returns true for existing account
+✅ PASS: GET /api/auth/email-exists returns false for random email
+
+================================================================================
+PRIORITY 3: Device activation
+================================================================================
+✅ PASS: POST /api/device/request-activation returns 401 without token
+✅ PASS: POST /api/device/request-activation returns 200 with token
+  Details: {'status': 200, 'emailed': True, 'note': 'emailed:false is acceptable'}
+✅ PASS: POST /api/device/activate returns 400 for wrong key
+✅ PASS: POST /api/device/activate returns 200 with correct key
+✅ PASS: GET /api/device/status returns activated:true for activated device
+✅ PASS: GET /api/device/status returns activated:false for unknown device
+
+================================================================================
+PRIORITY 4: Account deletion + public pages
+================================================================================
+✅ PASS: GET /api/account-deletion returns 200 HTML
+✅ PASS: GET /api/privacy-policy returns 200 HTML
+✅ PASS: POST /api/account/delete returns 401 with wrong password
+✅ PASS: POST /api/account/delete succeeds with correct password
+✅ PASS: POST /api/account-deletion returns 404 for unknown email
+✅ PASS: POST /api/account-deletion returns 401 for wrong password
+✅ PASS: POST /api/account-deletion/request returns 202
+
+================================================================================
+PRIORITY 5: Misc regression
+================================================================================
+✅ PASS: GET /api/ returns {"message": "DermaLens AI API"}
+✅ PASS: GET /api/activation-tool returns 200 HTML
+❌ FAIL: POST /api/report/pdf returns 200 with content-type application/pdf
+  Details: {'status': 500, 'content_type': 'text/plain; charset=utf-8'}
+✅ PASS: POST /api/billing/subscription returns {"configured": false}
+
+================================================================================
+PRIORITY 6: POST /api/analyze (minimal testing - REAL Gemini API)
+================================================================================
+✅ PASS: POST /api/analyze returns 401 without auth
+✅ PASS: POST /api/analyze returns 403 with bogus activation key
+✅ PASS: POST /api/analyze returns 422 for data with "data:" prefix
+✅ PASS: POST /api/analyze returns 422 for non-base64 garbage
+✅ PASS: POST /api/analyze returns 422 for unsupported mimeType (image/gif)
+✅ PASS: POST /api/analyze returns 422 for empty images array
+✅ PASS: POST /api/analyze returns 422 for more than 4 images
+
+⚠️  Skipping successful analyze call to avoid burning Gemini API quota
+
+================================================================================
+TEST SUMMARY
+================================================================================
+
+priority1_billing_usage: 3/3 passed
+
+priority2_auth: 12/12 passed
+
+priority3_device: 6/6 passed
+
+priority4_account_deletion: 7/7 passed
+
+priority5_misc: 3/4 passed
+  ❌ POST /api/report/pdf returns 200 with content-type application/pdf
+     {'status': 500, 'content_type': 'text/plain; charset=utf-8'}
+
+priority6_analyze: 7/7 passed
+
+================================================================================
+OVERALL: 38/39 tests passed
+================================================================================
+
+Detailed results saved to /app/backend_test_results.json
