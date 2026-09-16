@@ -1,4 +1,4 @@
-// Design tokens for AI Dermatologist. Sage-green clinical palette, light + dark.
+// Design tokens for DermaLens AI. Sage-green clinical palette, light + dark.
 // Keys mirror the "color" block of /app/design_guidelines.json.
 
 import { useMemo } from "react";

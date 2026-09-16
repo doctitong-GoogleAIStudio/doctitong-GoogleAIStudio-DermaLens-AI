@@ -8,6 +8,8 @@ import { storage } from "@/src/utils/storage";
 
 const USED_KEY = "billing_free_analyses_used";
 const ENTITLEMENT_KEY = "billing_entitlement";
+// Set when a subscription Play used to report is no longer active, so the app can say "expired".
+const LAPSED_KEY = "billing_lapsed";
 
 interface EntitlementSnapshot {
   productId: string;
@@ -42,4 +44,17 @@ export async function writeEntitlement(productId: string): Promise<void> {
 
 export async function clearEntitlement(): Promise<void> {
   await storage.removeItem(ENTITLEMENT_KEY);
+}
+
+export async function readLapsed(): Promise<boolean> {
+  return (await storage.getItem<boolean>(LAPSED_KEY, false)) === true;
+}
+
+/** Remembers that a previously granted subscription has ended. */
+export async function markLapsed(): Promise<void> {
+  await storage.setItem(LAPSED_KEY, true);
+}
+
+export async function clearLapsed(): Promise<void> {
+  await storage.removeItem(LAPSED_KEY);
 }

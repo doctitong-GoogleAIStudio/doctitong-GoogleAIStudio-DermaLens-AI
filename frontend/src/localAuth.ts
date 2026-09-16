@@ -205,3 +205,14 @@ export async function localGetSession(): Promise<AuthUser | null> {
 export async function localSignOut(): Promise<void> {
   await storage.removeItem(SESSION_KEY);
 }
+
+/** Removes the on-device account record, its id mapping and the session. */
+export async function localDeleteAccount(emailInput: string): Promise<void> {
+  const email = normalizeEmail(emailInput);
+  await serialized(async () => {
+    const account = await readAccountByEmail(email);
+    if (account) await removeRecord(ID_PREFIX + account.id);
+    await removeRecord(accountKey(email));
+    await storage.removeItem(SESSION_KEY);
+  });
+}

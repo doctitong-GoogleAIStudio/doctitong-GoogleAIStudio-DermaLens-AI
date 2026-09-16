@@ -21,8 +21,20 @@ export default function Paywall() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { available, connected, isSubscribed, plans, loadingPlans, isPurchasing, error, buy, refresh, clearError, freeLeft } =
-    useSubscription();
+  const {
+    available,
+    connected,
+    isSubscribed,
+    plans,
+    loadingPlans,
+    isPurchasing,
+    error,
+    buy,
+    refresh,
+    clearError,
+    freeLeft,
+    openManage,
+  } = useSubscription();
   const [selected, setSelected] = useState<PlanKey>("yearly");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -90,6 +102,13 @@ export default function Paywall() {
             <Text style={styles.noticeText}>
               Manage or cancel your plan any time in Google Play → Payments & subscriptions.
             </Text>
+            <Button
+              label="Manage Google Play Subscription"
+              variant="secondary"
+              onPress={openManage}
+              testID="paywall-manage-subscription"
+              style={{ marginTop: spacing.md }}
+            />
           </View>
         ) : loadingPlans || !connected ? (
           <View style={styles.loading} testID="paywall-loading">

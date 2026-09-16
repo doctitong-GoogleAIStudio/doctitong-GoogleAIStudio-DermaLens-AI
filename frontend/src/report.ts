@@ -101,7 +101,7 @@ export async function buildReportHtml(item: HistoryItem): Promise<string> {
 function reportFilename(item: HistoryItem): string {
   const cond = (item.diagnosis?.mostLikelyDiagnosis?.conditionName || "Report").replace(/[^A-Za-z0-9]+/g, "-");
   const date = item.date.replace(/[^A-Za-z0-9]+/g, "-");
-  return `AiDerma-${cond}-${date}.pdf`;
+  return `DermaLens-${cond}-${date}.pdf`;
 }
 
 export async function shareReport(item: HistoryItem): Promise<void> {

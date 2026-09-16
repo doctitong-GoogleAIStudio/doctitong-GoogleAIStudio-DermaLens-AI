@@ -1,7 +1,25 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 
-import { localSignIn, localSignUp, localSignOut, localGetSession, localUpsertAccount, localVerify } from "@/src/localAuth";
-import { OfflineError, clearToken, serverEmailExists, serverLogin, serverSignUp, setToken, tokenIsValid } from "@/src/api";
+import {
+  localDeleteAccount,
+  localGetSession,
+  localSignIn,
+  localSignOut,
+  localSignUp,
+  localUpsertAccount,
+  localVerify,
+} from "@/src/localAuth";
+import {
+  OfflineError,
+  clearToken,
+  serverDeleteAccount,
+  serverEmailExists,
+  serverLogin,
+  serverSignUp,
+  setToken,
+  tokenIsValid,
+} from "@/src/api";
+import { clearUserData } from "@/src/localData";
 import type { AuthUser } from "@/src/types";
 
 interface AuthContextValue {
@@ -14,6 +32,11 @@ interface AuthContextValue {
   /** Re-authenticates an existing local session so AI analysis works again. */
   reconnect: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * Permanently deletes the account on the server and every trace of it on
+   * this phone, then signs out. Re-authenticates with the password first.
+   */
+  deleteAccount: (password: string) => Promise<void>;
 }
 
 const WRONG_PASSWORD_ON_SERVER =
@@ -145,8 +168,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  const deleteAccount = useCallback(
+    async (password: string) => {
+      if (!user) throw new Error("You are not signed in.");
+      if (!password) throw new Error("Enter your password to confirm.");
+
+      // 1. Server first — if that fails nothing on the phone is touched.
+      let res;
+      try {
+        res = await serverDeleteAccount(user.email, password);
+      } catch (e) {
+        if (e instanceof OfflineError) {
+          throw new Error("No internet connection. Connect to the internet to delete your account.");
+        }
+        throw e;
+      }
+      if (res.status === 401) throw new Error("That password is incorrect.");
+      if (res.status === 429) throw new Error(res.detail ?? "Too many attempts. Please try again later.");
+      if (res.status === 404) {
+        // Never mirrored to the server (legacy local-only account) — still
+        // require the password so nobody can wipe a phone they picked up.
+        const local = await localVerify(user.email, password);
+        if (!local) throw new Error("That password is incorrect.");
+      } else if (res.status !== 200) {
+        throw new Error(res.detail ?? "Your account could not be deleted. Please try again.");
+      }
+
+      // 2. Then this phone: scans, photos, reports, token, account record, session.
+      await clearUserData();
+      await localDeleteAccount(user.email);
+      setNeedsReconnect(false);
+      setUser(null);
+    },
+    [user],
+  );
+
   return (
-    <AuthContext.Provider value={{ ready, user, needsReconnect, signIn, signUp, reconnect, signOut }}>
+    <AuthContext.Provider value={{ ready, user, needsReconnect, signIn, signUp, reconnect, signOut, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

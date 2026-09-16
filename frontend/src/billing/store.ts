@@ -11,6 +11,7 @@ export function useStoreBilling(): StoreBilling {
     available: false,
     connected: false,
     isSubscribed: false,
+    status: "none",
     activePlan: null,
     plans: [],
     loadingPlans: false,

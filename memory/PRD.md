@@ -1,4 +1,4 @@
-# AI Dermatologist — Product Requirements (PRD)
+# DermaLens AI (formerly AI Dermatologist) — Product Requirements (PRD)
 
 ## Original Problem Statement
 Clone the "AI Dermatologist" web app (github.com/doctitong-GoogleAIStudio/...-ai-dermatologist)
@@ -105,6 +105,22 @@ GCash QR for payment (owner to upload).
   legacy + expo-sharing + expo-document-picker) vs `file.web.ts` (Blob download + fetch/FileReader).
   Password reset was explicitly declined by the user. Verified: iteration 21 — backend 5/5 + full web
   export→restore round trip, wrong-password and non-backup-file errors. [DONE]
+
+- ACCOUNT & SUBSCRIPTION (2026-09-16, v1.1.3 / versionCode 123, publisher "aivicventures"):
+  About → Your account → **Account & Subscription** (`app/account.tsx`): Play subscription status
+  (active / trial / cancelled-until-period-end / grace period / on hold / paused / pending / expired /
+  restored — Billing Library first, optional server check `POST /api/billing/subscription` via Google
+  Play Developer API `subscriptionsv2.get` when `PLAY_SERVICE_ACCOUNT_JSON` is set), "Manage Google Play
+  Subscription" + "Manage / Cancel Subscription on Google Play" deep links, and **Delete My Account and
+  Data** (password re-auth → active-subscription warning → confirmation → `POST /api/account/delete` →
+  local wipe of history/photos/token/account → sign-out). Public pages served by the backend:
+  `GET /api/account-deletion` (Play Console account-deletion URL; email+password or "can't sign in"
+  request → admin email) and `GET /api/privacy-policy` (from `backend/static/privacy-policy.md`).
+  Server deletion hard-deletes `users`/`activation_requests`/`subscriptions`, de-identifies
+  `analysis_logs`/`activated_devices`, keeps `account_deletions {sha256(email), date}` (TTL 730 d).
+  Branding sweep: remaining user-facing "AI Dermatologist"/"AiDerma" strings → DermaLens AI (PDF file
+  names, API root, activation tool title). Package id / keystore unchanged. Docs:
+  `docs/ACCOUNT-DELETION-AND-SUBSCRIPTIONS.md`. Backend tests: `tests/test_iteration22_account_deletion.py`.
 
 ## Next Tasks
 1. Replace placeholder GCash QR with the owner's uploaded QR.

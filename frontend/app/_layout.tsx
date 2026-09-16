@@ -49,6 +49,7 @@ function Gate() {
         <Stack.Screen name="result" options={{ presentation: "card" }} />
         <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
         <Stack.Screen name="backup" options={{ presentation: "card" }} />
+        <Stack.Screen name="account" options={{ presentation: "card" }} />
       </Stack>
     </View>
   );

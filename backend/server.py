@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import io
 import time
 import base64
@@ -26,6 +27,10 @@ from bson import ObjectId
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+# Sibling module with the public HTML pages, importable however uvicorn is launched.
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+from pages import render_account_deletion_page, render_privacy_policy_page  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Config
@@ -49,12 +54,27 @@ ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
-EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "AI Dermatologist")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "DermaLens AI")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 # Must stay in sync with ACTIVATION_SECRET in frontend/src/device.ts.
 # The fallback guarantees the offline generator keeps producing valid keys even if
 # the env var is not present in the deployed environment.
 ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET") or "DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns"
+
+# Public pages (privacy policy / account deletion) and Google Play server-side verification.
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "")
+# Absolute https origin of this backend as seen from the internet, e.g. https://api.example.com.
+# Only used to print the account-deletion URL inside the privacy policy text.
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+# Must equal android.package in frontend/app.json (never changes — Play identifies the app by it).
+ANDROID_PACKAGE_NAME = os.environ.get("ANDROID_PACKAGE_NAME", "com.emergent.aidermatologistapp.r2pygs")
+# Google Cloud service-account JSON (inline or file path) with the Play Console "View financial data /
+# Manage orders and subscriptions" permission. Optional: leave empty to skip server-side verification.
+PLAY_SERVICE_ACCOUNT_JSON = os.environ.get("PLAY_SERVICE_ACCOUNT_JSON", "")
+# Comma-separated Play offer ids that are free trials (e.g. "freetrial-7d"). Optional.
+PLAY_TRIAL_OFFER_IDS = {x.strip() for x in os.environ.get("PLAY_TRIAL_OFFER_IDS", "").split(",") if x.strip()}
+# How long the sha256(email)+date deletion record is kept (legal / fraud / billing disputes).
+DELETION_RECORD_RETENTION_DAYS = int(os.getenv("DELETION_RECORD_RETENTION_DAYS", "730"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=True)
@@ -620,7 +640,7 @@ async def report_pdf(data: ReportIn, current_user: PublicUser = Depends(get_curr
     if result.err:
         raise HTTPException(status_code=500, detail="Could not render the PDF report.")
 
-    name = re.sub(r"[^A-Za-z0-9._-]", "-", data.filename or "AiDerma-Report.pdf")
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", data.filename or "DermaLens-Report.pdf")
     if not name.lower().endswith(".pdf"):
         name = f"{name}.pdf"
 
@@ -633,10 +653,309 @@ async def report_pdf(data: ReportIn, current_user: PublicUser = Depends(get_curr
 
 
 
+# ---------------------------------------------------------------------------
+# Account deletion (in-app + public web page) and subscription status
+# ---------------------------------------------------------------------------
+def _email_hash(email: str) -> str:
+    """One-way, unsalted-by-design hash so a deletion record can be matched to a
+    later request about the same address without storing the address itself."""
+    return hashlib.sha256(normalized_email(email).encode()).hexdigest()
+
+
+async def _send_admin_email(subject: str, html: str) -> bool:
+    if not (EMAIL_KEY and ADMIN_EMAIL):
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            resp = await hc.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMAIL_KEY},
+                json={"to": [ADMIN_EMAIL], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME},
+            )
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"Admin email failed: {e}")
+        return False
+
+
+async def _delete_user_account(user: dict, source: str) -> dict:
+    """Hard-deletes the account and everything that identifies the person.
+
+    Deleted:        users, activation_requests, subscriptions (verification snapshots)
+    De-identified:  analysis_logs (user_id removed), activated_devices (name/email removed —
+                    the device activation itself keeps working, it was paid for)
+    Retained:       one account_deletions record = sha256(email) + timestamp, auto-expired by a
+                    TTL index after DELETION_RECORD_RETENTION_DAYS (legal / fraud / billing disputes).
+    Photos, scans, notes and reports never reach this server — the app removes them locally.
+    """
+    user_id = str(user["_id"])
+    email = user["email"]
+    now = datetime.now(timezone.utc)
+
+    await db.activation_requests.delete_many({"user_id": user_id})
+    await db.subscriptions.delete_many({"user_id": user_id})
+    await db.activated_devices.update_many(
+        {"activated_by_email": email},
+        {"$unset": {"activated_by_email": "", "activated_by_name": ""}, "$set": {"activator_deleted_at": now}},
+    )
+    await db.analysis_logs.update_many(
+        {"user_id": user_id},
+        {"$set": {"user_id": None, "deleted_user": True}},
+    )
+    await db.users.delete_one({"_id": user["_id"]})
+    await db.account_deletions.insert_one({
+        "email_hash": _email_hash(email),
+        "deleted_at": now,
+        "source": source,
+    })
+    logger.info(f"Account deleted (source={source}, user_id={user_id})")
+    return {"deleted": True, "deleted_at": now.isoformat()}
+
+
+DELETION_ATTEMPT_WINDOW_MINUTES = 15
+DELETION_ATTEMPT_LIMIT = 8
+
+
+async def _throttle_deletion_attempts(email: str) -> None:
+    """The public page has no login, so failed password guesses are capped per address."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=DELETION_ATTEMPT_WINDOW_MINUTES)
+    failed = await db.deletion_attempts.count_documents({"email_hash": _email_hash(email), "created_at": {"$gte": since}})
+    if failed >= DELETION_ATTEMPT_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a few minutes and try again.")
+
+
+async def _record_failed_deletion_attempt(email: str) -> None:
+    try:
+        await db.deletion_attempts.insert_one({"email_hash": _email_hash(email), "created_at": datetime.now(timezone.utc)})
+    except Exception as e:
+        logger.error(f"deletion_attempts write failed: {e}")
+
+
+class AccountDeleteIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AccountDeletionByCredentialsIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AccountDeletionRequestIn(BaseModel):
+    email: EmailStr
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@api_router.post("/account/delete")
+async def delete_my_account(data: AccountDeleteIn, current_user: PublicUser = Depends(get_current_user)):
+    """In-app deletion. The signed-in user re-authenticates with their password."""
+    user = await db.users.find_one({"_id": ObjectId(current_user.id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    if not pwd_context.verify(data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="That password is incorrect.")
+    return await _delete_user_account(user, source="app")
+
+
+@api_router.post("/account-deletion")
+async def delete_account_by_credentials(data: AccountDeletionByCredentialsIn):
+    """Web-page deletion (Google Play "Account deletion URL"): no app, no token — email + password."""
+    email = normalized_email(str(data.email))
+    await _throttle_deletion_attempts(email)
+    user = await db.users.find_one({"email": email})
+    if not user:
+        await _record_failed_deletion_attempt(email)
+        raise HTTPException(status_code=404, detail="No account exists for that email address.")
+    if not pwd_context.verify(data.password, user["password_hash"]):
+        await _record_failed_deletion_attempt(email)
+        raise HTTPException(status_code=401, detail="The email or password is incorrect.")
+    return await _delete_user_account(user, source="web")
+
+
+@api_router.post("/account-deletion/request", status_code=202)
+async def request_account_deletion(data: AccountDeletionRequestIn):
+    """For people who cannot sign in. Recorded and emailed to the admin for manual processing
+    (verify ownership of the address, then delete within 30 days)."""
+    from html import escape
+
+    email = normalized_email(str(data.email))
+    note = (data.note or "").strip()
+    exists = bool(await db.users.find_one({"email": email}, {"_id": 1}))
+    await db.account_deletion_requests.insert_one({
+        "email": email,
+        "note": note,
+        "account_exists": exists,
+        "status": "open",
+        "created_at": datetime.now(timezone.utc),
+    })
+    await _send_admin_email(
+        subject=f"Account deletion request — {email}",
+        html=(
+            '<table role="presentation" width="100%" style="font-family:Arial,sans-serif;color:#111814"><tr><td style="padding:24px">'
+            f'<h2 style="margin:0 0 8px">Account deletion request</h2>'
+            f'<p style="margin:0 0 16px;color:#5C7066">Submitted from the {escape(EMAIL_FROM_NAME)} account-deletion web page.</p>'
+            f'<p><strong>Email:</strong> {escape(email)}<br/><strong>Account exists:</strong> {"yes" if exists else "no"}</p>'
+            + (f'<p><strong>Note:</strong> {escape(note)}</p>' if note else '')
+            + '<p style="font-size:13px;color:#5C7066">Verify the requester controls this address, then delete the account '
+              '(POST /api/account-deletion with their credentials, or remove the user document) within 30 days and mark the '
+              'request closed in account_deletion_requests.</p></td></tr></table>'
+        ),
+    )
+    # Always 202 — never reveal whether an account exists to an unauthenticated caller.
+    return {"status": "received"}
+
+
+@api_router.get("/account-deletion", response_class=HTMLResponse)
+async def account_deletion_page():
+    return HTMLResponse(content=render_account_deletion_page(api_base="", support_email=SUPPORT_EMAIL))
+
+
+@api_router.get("/privacy-policy", response_class=HTMLResponse)
+async def privacy_policy_page():
+    from markdown_it import MarkdownIt
+
+    md_path = ROOT_DIR / "static" / "privacy-policy.md"
+    try:
+        text = md_path.read_text(encoding="utf-8")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Privacy policy not found.")
+    deletion_url = f"{PUBLIC_BASE_URL}/api/account-deletion" if PUBLIC_BASE_URL else "/api/account-deletion"
+    text = (
+        text.replace("{{SUPPORT_EMAIL}}", SUPPORT_EMAIL or "the support address on our Google Play listing")
+        .replace("{{DELETION_URL}}", deletion_url)
+    )
+    body = MarkdownIt("commonmark", {"html": False}).enable("table").render(text)
+    return HTMLResponse(content=render_privacy_policy_page(body, api_base=""))
+
+
+# --- Google Play subscription status (optional server-side verification) ---------------------
+class SubscriptionVerifyIn(BaseModel):
+    productId: str = Field(min_length=1, max_length=100)
+    purchaseToken: str = Field(min_length=10, max_length=2000)
+
+
+_PLAY_STATE_MAP = {
+    "SUBSCRIPTION_STATE_ACTIVE": "active",
+    "SUBSCRIPTION_STATE_CANCELED": "cancelled",
+    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD": "grace_period",
+    "SUBSCRIPTION_STATE_ON_HOLD": "on_hold",
+    "SUBSCRIPTION_STATE_PAUSED": "paused",
+    "SUBSCRIPTION_STATE_EXPIRED": "expired",
+    "SUBSCRIPTION_STATE_PENDING": "pending",
+    "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED": "none",
+}
+# Google Play keeps the entitlement in these states (the app may keep granting access).
+_PLAY_ENTITLED_STATES = {"active", "cancelled", "grace_period"}
+
+_play_token_cache: dict = {"token": "", "expires": 0.0}
+
+
+def _load_play_credentials():
+    """Service-account JSON, either inline or a file path. None when not configured."""
+    raw = PLAY_SERVICE_ACCOUNT_JSON.strip()
+    if not raw:
+        return None
+    from google.oauth2 import service_account
+
+    scopes = ["https://www.googleapis.com/auth/androidpublisher"]
+    if raw.startswith("{"):
+        return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=scopes)
+    return service_account.Credentials.from_service_account_file(raw, scopes=scopes)
+
+
+def _play_access_token_sync() -> str:
+    if _play_token_cache["token"] and time.time() < _play_token_cache["expires"]:
+        return _play_token_cache["token"]
+    from google.auth.transport.requests import Request
+
+    creds = _load_play_credentials()
+    creds.refresh(Request())
+    _play_token_cache["token"] = creds.token
+    _play_token_cache["expires"] = time.time() + 50 * 60
+    return creds.token
+
+
+def _summarize_play_subscription(product_id: str, payload: dict) -> dict:
+    raw_state = payload.get("subscriptionState", "")
+    state = _PLAY_STATE_MAP.get(raw_state, "unknown")
+    items = payload.get("lineItems") or []
+    line = next((li for li in items if li.get("productId") == product_id), items[0] if items else {})
+    offer = line.get("offerDetails") or {}
+    offer_id = offer.get("offerId")
+    if PLAY_TRIAL_OFFER_IDS:
+        is_trial = bool(offer_id) and offer_id in PLAY_TRIAL_OFFER_IDS
+    else:
+        # Without an explicit list, any introductory offer on a subscription is reported as a trial.
+        is_trial = bool(offer_id)
+    auto_renew = (line.get("autoRenewingPlan") or {}).get("autoRenewEnabled")
+    return {
+        "configured": True,
+        "state": state,
+        "entitled": state in _PLAY_ENTITLED_STATES,
+        "productId": line.get("productId") or product_id,
+        "basePlanId": offer.get("basePlanId"),
+        "offerId": offer_id,
+        "isTrial": is_trial,
+        "autoRenewing": bool(auto_renew) if auto_renew is not None else None,
+        "expiryTime": line.get("expiryTime"),
+        "startTime": payload.get("startTime"),
+        "acknowledged": payload.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
+        "testPurchase": "testPurchase" in payload,
+        "autoResumeTime": (payload.get("pausedStateContext") or {}).get("autoResumeTime"),
+    }
+
+
+@api_router.post("/billing/subscription")
+async def verify_subscription(data: SubscriptionVerifyIn, current_user: PublicUser = Depends(get_current_user)):
+    """Looks a purchase token up in the Google Play Developer API (purchases.subscriptionsv2.get)
+    so the app can show grace-period / account-hold / trial / expiry — states the on-device
+    Billing Library cannot report. Google Play stays the source of truth; when no service
+    account is configured the app falls back to Billing Library status only."""
+    if not PLAY_SERVICE_ACCOUNT_JSON.strip():
+        return {"configured": False}
+
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        token = await run_in_threadpool(_play_access_token_sync)
+    except Exception as e:
+        logger.error(f"Play service-account auth failed: {e}")
+        raise HTTPException(status_code=500, detail="Subscription verification is not configured correctly.")
+
+    url = (
+        f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{ANDROID_PACKAGE_NAME}"
+        f"/purchases/subscriptionsv2/tokens/{data.purchaseToken}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=20) as hc:
+            resp = await hc.get(url, headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as e:
+        logger.error(f"Play API transport error: {e}")
+        raise HTTPException(status_code=502, detail="Google Play could not be reached. Please try again.")
+
+    if resp.status_code == 404 or resp.status_code == 410:
+        summary = {"configured": True, "state": "none", "entitled": False, "productId": data.productId}
+    elif resp.status_code != 200:
+        logger.error(f"Play API HTTP {resp.status_code}: {resp.text[:300]}")
+        raise HTTPException(status_code=502, detail="Google Play returned an error. Please try again.")
+    else:
+        summary = _summarize_play_subscription(data.productId, resp.json())
+
+    try:
+        await db.subscriptions.update_one(
+            {"user_id": current_user.id, "productId": summary["productId"]},
+            {"$set": {**summary, "user_id": current_user.id, "checked_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error(f"subscriptions write failed: {e}")
+    return summary
+
+
 ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>AI Dermatologist \u2014 Offline Activation Generator</title>
+<title>DermaLens AI \u2014 Offline Activation Generator</title>
 <style>
   :root{--bg:#101412;--card:#181D1A;--fg:#E6EFEB;--muted:#8E9E96;--brand:#5C947A;--border:#2B3831}
   *{box-sizing:border-box}
@@ -827,7 +1146,7 @@ ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
     var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\\n');
     var a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
-    a.download='aiderma-activation-log.csv';
+    a.download='dermalens-activation-log.csv';
     document.body.appendChild(a);a.click();document.body.removeChild(a);
     toast('CSV downloaded');
   };
@@ -856,7 +1175,7 @@ async def activation_tool():
 # ---------------------------------------------------------------------------
 @api_router.get("/")
 async def root():
-    return {"message": "AI Dermatologist API"}
+    return {"message": "DermaLens AI API"}
 
 
 app.include_router(api_router)
@@ -876,6 +1195,12 @@ async def startup():
     # Keeps the hourly rate-limit count fast as the log grows.
     await db.analysis_logs.create_index([("user_id", 1), ("created_at", -1)])
     await db.analysis_logs.create_index([("activation_device_id", 1), ("created_at", -1)])
+    # Deletion records and throttling entries expire on their own.
+    await db.account_deletions.create_index(
+        "deleted_at", expireAfterSeconds=DELETION_RECORD_RETENTION_DAYS * 24 * 3600
+    )
+    await db.deletion_attempts.create_index("created_at", expireAfterSeconds=DELETION_ATTEMPT_WINDOW_MINUTES * 60)
+    await db.subscriptions.create_index([("user_id", 1), ("productId", 1)], unique=True)
 
 
 @app.on_event("shutdown")

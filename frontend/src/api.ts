@@ -126,3 +126,99 @@ export async function tokenIsValid(): Promise<boolean> {
     clearTimeout(timer);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Public pages (served by the backend so they always match the deployed API)
+// ---------------------------------------------------------------------------
+export function privacyPolicyUrl(): string | null {
+  return BASE ? apiUrl("/api/privacy-policy") : null;
+}
+
+export function accountDeletionPageUrl(): string | null {
+  return BASE ? apiUrl("/api/account-deletion") : null;
+}
+
+// ---------------------------------------------------------------------------
+// Account deletion
+// ---------------------------------------------------------------------------
+export interface DeleteAccountResult {
+  /** 200 deleted · 401 wrong password · 404 no server account · other = server error */
+  status: number;
+  detail?: string;
+}
+
+async function postJson(path: string, body: unknown, token?: string): Promise<{ status: number; json: any }> {
+  if (!BASE) throw new OfflineError();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch {
+    throw new OfflineError();
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status >= 500) throw new OfflineError();
+  const json: any = await res.json().catch(() => ({}));
+  return { status: res.status, json };
+}
+
+/**
+ * Deletes the account on the server. Uses the stored session token when there
+ * is one (re-authenticating with the password), otherwise the credentials
+ * alone — the same path the public web page uses.
+ */
+export async function serverDeleteAccount(email: string, password: string): Promise<DeleteAccountResult> {
+  const token = await getToken();
+  let res = token
+    ? await postJson("/api/account/delete", { password }, token)
+    : await postJson("/api/account-deletion", { email, password });
+  // A stale token is not a reason to fail: fall back to credentials.
+  if (token && res.status === 401 && res.json?.detail === "Invalid or expired token") {
+    res = await postJson("/api/account-deletion", { email, password });
+  }
+  return { status: res.status, detail: typeof res.json?.detail === "string" ? res.json.detail : undefined };
+}
+
+// ---------------------------------------------------------------------------
+// Google Play subscription verification (optional, server-side)
+// ---------------------------------------------------------------------------
+export interface ServerSubscriptionStatus {
+  configured: boolean;
+  state?: "none" | "active" | "cancelled" | "grace_period" | "on_hold" | "paused" | "expired" | "pending" | "unknown";
+  entitled?: boolean;
+  productId?: string;
+  basePlanId?: string | null;
+  offerId?: string | null;
+  isTrial?: boolean;
+  autoRenewing?: boolean | null;
+  /** RFC 3339 timestamp from Google Play. */
+  expiryTime?: string | null;
+  autoResumeTime?: string | null;
+}
+
+/**
+ * Asks the backend to look the purchase up in the Google Play Developer API.
+ * Returns null when offline, not signed in, or the backend has no service
+ * account configured — callers must then rely on the Billing Library alone.
+ */
+export async function serverSubscriptionStatus(
+  productId: string,
+  purchaseToken: string,
+): Promise<ServerSubscriptionStatus | null> {
+  const token = await getToken();
+  if (!token) return null;
+  try {
+    const res = await postJson("/api/billing/subscription", { productId, purchaseToken }, token);
+    if (res.status !== 200 || res.json?.configured !== true) return null;
+    return res.json as ServerSubscriptionStatus;
+  } catch {
+    return null;
+  }
+}

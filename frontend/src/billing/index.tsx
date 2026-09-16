@@ -6,7 +6,8 @@ import { readUsedAnalyses, recordAnalysisUsed } from "./localState";
 import type { StoreBilling } from "./types";
 
 export { FREE_ANALYSES, PRODUCT_IDS } from "./products";
-export type { PlanKey, PlanOption } from "./types";
+export type { ActivePlanInfo, PlanKey, PlanOption, SubscriptionStatus } from "./types";
+export { describeSubscription } from "./status";
 
 interface SubscriptionValue extends StoreBilling {
   /** Analyses already run on this device. */

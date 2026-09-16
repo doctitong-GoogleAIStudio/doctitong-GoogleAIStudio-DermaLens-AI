@@ -1,10 +1,11 @@
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
-import { useSubscription } from "@/src/billing";
+import { describeSubscription, useSubscription } from "@/src/billing";
+import { privacyPolicyUrl } from "@/src/api";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 function Row({
@@ -39,16 +40,15 @@ export default function About() {
   const appName = Constants.expoConfig?.name ?? "DermaLens AI";
   const appVersion = Constants.expoConfig?.version ?? "";
   const router = useRouter();
-  const { available: billingAvailable, isSubscribed, activePlan, freeLeft, openManage } = useSubscription();
+  const { available: billingAvailable, isSubscribed, status, activePlan, freeLeft } = useSubscription();
+  const policyUrl = privacyPolicyUrl();
 
   const planValue = isSubscribed
-    ? activePlan
-      ? activePlan.autoRenewing
-        ? "Renews automatically"
-        : "Cancelled · active until period ends"
-      : "Active"
+    ? describeSubscription(status, activePlan).label
     : billingAvailable
-      ? `${freeLeft} free analysis left`
+      ? status === "expired"
+        ? "Expired"
+        : `${freeLeft} free analysis left`
       : "Unlimited on this device";
 
   return (
@@ -106,30 +106,28 @@ export default function About() {
             value={planValue}
             testID="about-plan"
           />
-          {billingAvailable && (
+          {billingAvailable && !isSubscribed && (
             <>
               <View style={styles.divider} />
-              {isSubscribed ? (
-                <Row
-                  icon="open-outline"
-                  label="Manage subscription"
-                  onPress={openManage}
-                  testID="about-manage-subscription"
-                />
-              ) : (
-                <Row
-                  icon="arrow-up-circle-outline"
-                  label="See premium plans"
-                  onPress={() => router.push("/paywall")}
-                  testID="about-see-plans"
-                />
-              )}
+              <Row
+                icon="arrow-up-circle-outline"
+                label="See premium plans"
+                onPress={() => router.push("/paywall")}
+                testID="about-see-plans"
+              />
             </>
           )}
         </View>
 
-        <Text style={styles.groupLabel}>Your data</Text>
+        <Text style={styles.groupLabel}>Your account</Text>
         <View style={styles.group}>
+          <Row
+            icon="person-circle-outline"
+            label="Account & Subscription"
+            onPress={() => router.push("/account")}
+            testID="about-account"
+          />
+          <View style={styles.divider} />
           <Row
             icon="save-outline"
             label="Backup & restore"
@@ -143,6 +141,17 @@ export default function About() {
           <Row icon="person-outline" label="Developed by" value="aivicventures" />
           <View style={styles.divider} />
           <Row icon="information-circle-outline" label="Version" value={appVersion} />
+          {!!policyUrl && (
+            <>
+              <View style={styles.divider} />
+              <Row
+                icon="document-text-outline"
+                label="Privacy Policy"
+                onPress={() => Linking.openURL(policyUrl).catch(() => {})}
+                testID="about-privacy-policy"
+              />
+            </>
+          )}
         </View>
 
         <Text style={styles.footer}>Powered by Google Gemini</Text>

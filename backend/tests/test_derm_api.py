@@ -1,4 +1,4 @@
-"""Backend API tests for AI Dermatologist app."""
+"""Backend API tests for the DermaLens AI app."""
 import base64
 import hashlib
 import hmac
