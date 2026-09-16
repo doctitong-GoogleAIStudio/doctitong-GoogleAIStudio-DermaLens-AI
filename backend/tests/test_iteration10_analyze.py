@@ -16,7 +16,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 from server import _build_analysis_prompt, AnalyzeIn, ClinicalHistoryIn  # noqa: E402
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or \
-    "https://ai-dermatologist-app.preview.emergentagent.com"
+    "https://github-file-copier.preview.emergentagent.com"
 
 TEST_EMAIL = "test1@example.com"
 TEST_PASSWORD = "secret123"

@@ -9,7 +9,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://ai-dermatologist-app.preview.emergentagent.com"
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://github-file-copier.preview.emergentagent.com"
 BASE_URL = BASE_URL.rstrip("/")
 
 TEST_EMAIL = "test1@example.com"
