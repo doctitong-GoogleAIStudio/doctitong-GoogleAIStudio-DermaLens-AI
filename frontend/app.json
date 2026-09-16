@@ -21,7 +21,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.emergent.aidermatologistapp.r2pygs",
-      "versionCode": 123,
+      "versionCode": 124,
       "permissions": [
         "android.permission.CAMERA"
       ],

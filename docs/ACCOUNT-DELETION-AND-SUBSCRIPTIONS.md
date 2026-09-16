@@ -57,4 +57,4 @@ DELETION_RECORD_RETENTION_DAYS=730
 2. **App content → Privacy policy**: set `https://<backend>/api/privacy-policy` (or wherever you host the same text). Store listing → set the same policy URL.
 3. **Monetize → Subscriptions**: keep `premium_monthly` / `premium_yearly`; if you want the 7-day free trial, add a *free-trial offer* to each base plan and put its offer id in `PLAY_TRIAL_OFFER_IDS`. Enable grace period / account hold under *Monetization setup* if desired.
 4. For server-side verification: Google Cloud → create a service account → Play Console → Users and permissions → invite it with *View financial data* + *Manage orders and subscriptions* → paste its JSON key into `PLAY_SERVICE_ACCOUNT_JSON`.
-5. Upload the v1.1.3 AAB (versionCode 123), signed with `ai-dermatologist-release.keystore`.
+5. Upload the v1.1.3 AAB (versionCode 124 — 123 was already consumed by the patched v1.1.2 bundle), signed with `ai-dermatologist-release.keystore`.
