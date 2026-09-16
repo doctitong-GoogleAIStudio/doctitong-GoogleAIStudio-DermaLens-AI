@@ -19,13 +19,13 @@
   .apk -> apksigner from the Android SDK build-tools (v2+v3 signatures, zipaligned first)
 
 .EXAMPLE
-  pwsh scripts/sign-release.ps1 -Input "app-release.aab" -Output "DermaLens AI v1.1.3.aab"
-  pwsh scripts/sign-release.ps1 -Input "app-release.apk" -Output "DermaLens AI v1.1.3.apk"
-  pwsh scripts/sign-release.ps1 -Input x.aab -VerifyOnly     # just print the signer
+  pwsh scripts/sign-release.ps1 -Path "app-release.aab" -Output "DermaLens AI v1.1.3.aab"
+  pwsh scripts/sign-release.ps1 -Path "app-release.apk" -Output "DermaLens AI v1.1.3.apk"
+  pwsh scripts/sign-release.ps1 -Path x.aab -VerifyOnly     # just print the signer
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)] [string] $Input,
+  [Parameter(Mandatory = $true)] [string] $Path,
   [string] $Output,
   [switch] $VerifyOnly,
   # SHA-256 of the certificate Google Play Console lists as the *upload key certificate*.
@@ -100,27 +100,27 @@ if ($actual -ne $ExpectedSha256.ToUpper()) {
 }
 
 if ($VerifyOnly) {
-  Write-Host "Signer of ${Input}:"
-  if ($Input -like "*.aab") { & (Find-Tool "jarsigner" $jdkDirs) -verify -verbose:summary -certs $Input }
-  else { & (Find-Tool "apksigner" $buildTools) verify --print-certs $Input }
+  Write-Host "Signer of ${Path}:"
+  if ($Path -like "*.aab") { & (Find-Tool "jarsigner" $jdkDirs) -verify -verbose:summary -certs $Path }
+  else { & (Find-Tool "apksigner" $buildTools) verify --print-certs $Path }
   exit 0
 }
 
-if (-not $Output) { $Output = $Input -replace '(\.aab|\.apk)$', '-signed$1' }
+if (-not $Output) { $Output = $Path -replace '(\.aab|\.apk)$', '-signed$1' }
 
-if ($Input -like "*.aab") {
+if ($Path -like "*.aab") {
   $jarsigner = Find-Tool "jarsigner" $jdkDirs
-  Copy-Item $Input $Output -Force
+  Copy-Item $Path $Output -Force
   & $jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore $keystore -storepass $storePass -keypass $keyPass $Output $alias
   if ($LASTEXITCODE -ne 0) { throw "jarsigner failed" }
   & $jarsigner -verify -certs $Output | Out-Null
   Write-Host "Signed bundle: $Output"
 }
-elseif ($Input -like "*.apk") {
+elseif ($Path -like "*.apk") {
   $zipalign = Find-Tool "zipalign" $buildTools
   $apksigner = Find-Tool "apksigner" $buildTools
   $aligned = [IO.Path]::GetTempFileName() + ".apk"
-  & $zipalign -f -p 4 $Input $aligned
+  & $zipalign -f -p 4 $Path $aligned
   if ($LASTEXITCODE -ne 0) { throw "zipalign failed" }
   # Passwords go through stdin, never the command line / process list.
   $pw = "$storePass`n$keyPass`n"
