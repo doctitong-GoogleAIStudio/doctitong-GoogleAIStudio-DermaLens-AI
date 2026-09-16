@@ -51,6 +51,9 @@ GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEM
 GEMINI_TIMEOUT_SECONDS = 90.0
 # A stolen token must not be able to drain the AI budget.
 ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
+# Free analyses per ACCOUNT before the paywall. Counted from analysis_logs so a reinstall
+# cannot reset it. Must match FREE_ANALYSES in frontend/src/billing/products.ts.
+FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
@@ -903,6 +906,15 @@ def _summarize_play_subscription(product_id: str, payload: dict) -> dict:
         "testPurchase": "testPurchase" in payload,
         "autoResumeTime": (payload.get("pausedStateContext") or {}).get("autoResumeTime"),
     }
+
+
+@api_router.get("/billing/usage")
+async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
+    """How many successful analyses this ACCOUNT has run, ever. The app compares it with its
+    on-device counter (max of the two) so the free analysis survives uninstall/reinstall and
+    cannot be re-earned by signing in again."""
+    used = await db.analysis_logs.count_documents({"user_id": current_user.id, "status": 200})
+    return {"analyses_used": used, "free_analyses": FREE_ANALYSES}
 
 
 @api_router.post("/billing/subscription")

@@ -27,6 +27,18 @@ export async function recordAnalysisUsed(): Promise<number> {
   return next;
 }
 
+/**
+ * Raises the on-device counter to what the account has used on the server.
+ * Never lowers it: the device count also guards against several accounts
+ * sharing one phone to collect several free analyses.
+ */
+export async function reconcileUsedAnalyses(serverUsed: number): Promise<number> {
+  const local = await readUsedAnalyses();
+  const merged = Math.max(local, serverUsed);
+  if (merged !== local) await storage.setItem(USED_KEY, merged);
+  return merged;
+}
+
 export async function readEntitlement(): Promise<EntitlementSnapshot | null> {
   const raw = await storage.getItem<string>(ENTITLEMENT_KEY, "");
   if (!raw) return null;

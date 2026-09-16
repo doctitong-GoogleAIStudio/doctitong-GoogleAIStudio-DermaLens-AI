@@ -172,3 +172,27 @@ class TestSubscriptionVerification:
         _, token, _ = _signup("subval")
         r = requests.post(f"{API}/billing/subscription", json={"productId": "", "purchaseToken": "short"}, headers=_auth(token))
         assert r.status_code == 422
+
+
+class TestBillingUsage:
+    """GET /api/billing/usage — account-bound free-analysis counter (survives reinstall)."""
+
+    def test_requires_token(self):
+        assert requests.get(f"{API}/billing/usage").status_code == 401
+
+    def test_counts_successful_analyses_per_account(self, db):
+        from datetime import datetime, timezone
+
+        _, token, user_id = _signup("usage")
+        r = requests.get(f"{API}/billing/usage", headers=_auth(token))
+        assert r.status_code == 200 and r.json()["analyses_used"] == 0
+        assert r.json()["free_analyses"] >= 1
+
+        now = datetime.now(timezone.utc)
+        db.analysis_logs.insert_many([
+            {"principal_kind": "user", "user_id": user_id, "image_count": 1, "latency_ms": 1, "status": 200, "model": "x", "created_at": now},
+            {"principal_kind": "user", "user_id": user_id, "image_count": 1, "latency_ms": 1, "status": 502, "model": "x", "created_at": now},
+        ])
+        r = requests.get(f"{API}/billing/usage", headers=_auth(token))
+        assert r.json()["analyses_used"] == 1  # failed analyses do not count
+        db.analysis_logs.delete_many({"user_id": user_id})

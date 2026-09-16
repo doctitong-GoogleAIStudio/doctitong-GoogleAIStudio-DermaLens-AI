@@ -222,3 +222,33 @@ export async function serverSubscriptionStatus(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Account-bound usage (free-analysis counter that survives reinstall)
+// ---------------------------------------------------------------------------
+export interface ServerUsage {
+  analysesUsed: number;
+  freeAnalyses: number;
+}
+
+/** Null when offline or not signed in to the backend — caller keeps its local count. */
+export async function serverUsage(): Promise<ServerUsage | null> {
+  const token = await getToken();
+  if (!token || !BASE) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(apiUrl("/api/billing/usage"), {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json: any = await res.json().catch(() => null);
+    if (typeof json?.analyses_used !== "number") return null;
+    return { analysesUsed: json.analyses_used, freeAnalyses: json.free_analyses ?? 1 };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
