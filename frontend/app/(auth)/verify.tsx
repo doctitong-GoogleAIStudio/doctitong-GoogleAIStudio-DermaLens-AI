@@ -232,15 +232,19 @@ const useStyles = makeStyles((colors) => ({
     justifyContent: "center",
   },
   boxText: { fontFamily: fonts.displaySemi, fontSize: fontSize["2xl"], color: colors.onSurface },
-  // A real, focusable input laid over the boxes: the digits are drawn by the
-  // boxes underneath, so the text itself is transparent. Kept visible (rather
-  // than opacity 0) so screen readers and autofill can reach it.
+  // A real, focusable input laid over the boxes: the digits the user types are
+  // drawn by the boxes underneath, so the input itself must not paint anything.
+  // `opacity: 0` is what actually guarantees that - Android still renders the
+  // glyphs when only `color` is transparent, which printed the code on top of
+  // the boxes. The element keeps its full size (and a testID + accessibility
+  // label), so taps, autofill, screen readers and test tooling all reach it.
   codeInput: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     height: 60,
+    opacity: 0,
     backgroundColor: "transparent",
     color: "transparent",
     textAlign: "center",

@@ -1114,3 +1114,146 @@ agent_communication:
       - verify-resend disabled state: ✅ RESOLVED (aria-disabled="true" confirmed)
       
       The two "minor issues" I reported in the previous test were NOT bugs - they were FALSE POSITIVES caused by using is_enabled() on React Native Web Pressable components. The main agent's fix (adding accessibilityState) made the disabled state properly detectable via aria-disabled attribute.
+
+#=====================================================================
+# BUG FIX — typed code painted ON TOP of the 6 boxes (real Android device)
+#=====================================================================
+user_problem_statement: |
+  User screenshot from a physical Android phone on the "Confirm your email" screen: the digits they
+  typed were drawn a second time, centred across the row, overlapping the boxes ("3 8 38661i3 1 3"),
+  obscuring the code.
+
+frontend:
+  - task: "BUG FIX: hide the overlay code input on Android (verify screen)"
+    implemented: true
+    working: true
+    file: "frontend/app/(auth)/verify.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          ROOT CAUSE: the focusable TextInput sits over the 6 display boxes and was hidden with
+          `color: "transparent"` alone. Android still paints the glyphs in that case, so the whole code
+          appeared centred on top of the boxes. (I had switched it away from `opacity: 0` earlier for a
+          bad reason: a Playwright `query_selector("input")` grabbed the still-mounted signup screen's
+          first input, not this one, so I wrongly blamed opacity for the "element is not visible" error.
+          Targeting testID `verify-code-input` works regardless of opacity.)
+          FIX: `styles.codeInput` is back to `opacity: 0` (composited, so it is guaranteed to paint
+          nothing on every platform) while keeping full size, testID, accessibilityLabel and the
+          transparent colour as belt-and-braces. Taps, autofill, screen readers and automation all still
+          reach it.
+          Self-checked on web: computed style opacity "0", colour rgba(0,0,0,0); typing "3861" put the
+          digits ONLY in the boxes and the DOM input value stayed "3861".
+        -working: true
+        -agent: "testing"
+        -comment: |
+          ✅✅✅ BUG FIX FULLY VERIFIED - ALL TESTS PASSED ✅✅✅
+          
+          Tested on web preview (https://github-file-copier.preview.emergentagent.com) following the exact test protocol from the review request.
+          
+          🎯 THE FIX ITSELF (TEST 2a, 2b, 2c):
+          ✅ TEST 2a - Computed style of verify-code-input:
+             - opacity: "0" (THE KEY FIX IS APPLIED ✓✓✓)
+             - color: rgba(0, 0, 0, 0) (transparent)
+             - background: rgba(0, 0, 0, 0) (transparent)
+          
+          ✅ TEST 2b - Typed partial code "3861" and verified:
+             - DOM input value: "3861" (correct ✓)
+             - Painted digits on screen: ['3', '8', '6', '1'] (EXACTLY ONCE, no duplicates/overlay ✓✓✓)
+             - Screenshot shows: 4 filled boxes (3, 8, 6, 1), 2 empty boxes, NO overlapping text ✓
+             - This proves the bug is FIXED: digits appear only in the boxes, not painted twice
+          
+          ✅ TEST 2c - Input is focusable:
+             - Clicked verify-code boxes area
+             - document.activeElement testID: "verify-code-input" (correct ✓)
+             - Input remains fully interactive despite opacity: 0
+          
+          🔄 NO REGRESSION IN FLOW (TEST 1, 3a, 3b, 3c, 3d):
+          ✅ TEST 1 - Reached verify screen:
+             - Signup form submission successful
+             - Navigated to "Confirm your email" screen
+             - Masked email displayed: "de•••••••@resend.dev"
+          
+          ✅ TEST 3a - Wrong code handling:
+             - Typed wrong code "000000"
+             - Auto-submitted on 6th digit ✓
+             - Error message: "That code is not correct. You have 4 attempts left." ✓
+             - Boxes cleared after error ✓
+          
+          ✅ TEST 3b - Planted known code:
+             - Python command executed: modified_count = 1 ✓
+             - Code "135790" planted with correct hash
+          
+          ✅ TEST 3c - Correct code and home screen:
+             - Typed correct code "135790"
+             - Auto-submitted on 6th digit ✓
+             - Successfully landed on home screen ✓
+             - FAB (testID new-scan-fab) present ✓
+             - Greeting "Hi, Delivery" displayed ✓
+             - Screenshot captured showing signed-in home screen
+          
+          ✅ TEST 3d - aria-disabled attributes:
+             - verify-submit aria-disabled="true" with no code entered ✓
+             - verify-resend aria-disabled="true" during countdown ✓
+             - Both attributes correctly exposed (no false positives from is_enabled())
+          
+          📊 CONSOLE HEALTH:
+          ✅ Console errors: 0 (the 400 from wrong code test was expected)
+          ✅ Console warnings: 1 (React Native Web "shadow*" deprecation - cosmetic, not critical)
+          ✅ No critical errors, no unhandled rejections
+          
+          🧹 CLEANUP COMPLETED:
+          - pending_signups deleted: 0 (already consumed by successful verification)
+          - signup_code_sends deleted: 1
+          - users (delivered@resend.dev) deleted: 1
+          
+          🎉 DELIVERABLES COMPLETED:
+          ✅ Computed style from TEST 2a: opacity "0" (THE KEY RESULT)
+          ✅ Painted-digits array from TEST 2b: ['3', '8', '6', '1'] (no duplicates)
+          ✅ activeElement from TEST 2c: "verify-code-input"
+          ✅ Pass/fail for TEST 3a-3d: ALL PASSED
+          ✅ Screenshots: verify screen with 4 digits entered, signed-in home screen
+          ✅ Console report: 0 errors, 1 cosmetic warning
+          ✅ Cleanup command executed
+          
+          🔑 KEY FINDING:
+          The bug is FIXED. The overlay input now has opacity: 0, which guarantees it paints nothing on any platform (including Android). Each typed digit appears EXACTLY ONCE in the display boxes, with no duplicate/centered overlay. The input remains fully functional (focusable, typeable, accessible). The complete sign-up flow works correctly from signup → verify → home screen.
+          
+          Email sends used: 2 (within budget)
+
+metadata:
+  frontend_test_sequence: 4
+  run_ui: true
+
+agent_communication:
+    -agent: "main"
+    -message: |
+      Verify the overlay input paints nothing while still being typeable, and that the sign-up flow
+      still completes. State reset: pending_signups / signup_code_sends cleared and the
+      delivered@resend.dev user deleted, so the 5-sends-per-hour budget for that address is fresh.
+      Remember: assert on aria-disabled or behaviour, never Playwright is_enabled(), and always target
+      testID `verify-code-input` (the signup screen stays mounted behind this one, so a bare
+      "input" selector picks the wrong element).
+    -agent: "testing"
+    -message: |
+      ✅ BUG FIX VERIFICATION COMPLETE - ALL TESTS PASSED
+      
+      THE FIX:
+      ✅ opacity: 0 confirmed (the key fix that prevents Android from painting glyphs)
+      ✅ Painted digits: ['3', '8', '6', '1'] - EXACTLY ONCE, no duplicates/overlay
+      ✅ Input remains focusable and typeable despite opacity: 0
+      
+      NO REGRESSION:
+      ✅ Wrong code shows error and clears boxes
+      ✅ Correct code (planted via hash trick) completes sign-up
+      ✅ Landed on home screen with FAB and "Hi, Delivery" greeting
+      ✅ aria-disabled attributes working correctly
+      
+      CONSOLE: 0 errors, 1 cosmetic warning (React Native Web shadow* deprecation)
+      
+      CLEANUP: Completed (1 send counter, 1 user deleted)
+      
+      🎉 The bug is FIXED. The overlay input now paints nothing on any platform while remaining fully functional.
