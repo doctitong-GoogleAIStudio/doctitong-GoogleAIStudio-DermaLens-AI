@@ -1,0 +1,145 @@
+# DermaLens AI v1.1.8.aab — Google Play readiness
+Analyzed 2026-09-17 with bundletool 1.18.1, jarsigner/keytool (Temurin 17), apksigner (tools/).
+
+VERDICT: The bundle itself is technically valid (bundletool validate passes, targetSdk 36,
+16 KB-aligned, properly JAR-signed), but there are TWO issues that will very likely cause
+the upload to be rejected by Play Console. Fix both before uploading.
+
+
+## BLOCKERS
+
+### 1. versionCode 123 is a duplicate
+
+  Build                          versionCode   versionName
+  -----------------------------  -----------   -----------
+  AI Dermatologist v1.0.10       118           1.0.10
+  DermaLens AI v1.1.2 (both)     123           1.1.2
+  DermaLens AI v1.1.7            121           1.1.7
+  DermaLens AI v1.1.8            123           1.1.8
+
+If v1.1.2 (versionCode 123) was ever uploaded to ANY track (internal testing included),
+Play will reject 1.1.8 with "Version code 123 has already been used". Version codes are
+also going backwards (123 -> 121 -> 123), so the build system is not incrementing them.
+The embedded app.config says versionCode: 118, so the manifest value is coming from
+somewhere else in the build. Set it explicitly to 124 or higher and rebuild.
+
+### 2. Signing key has changed — three different certificates across builds
+
+  Build                 Certificate                                              SHA-256
+  --------------------  -------------------------------------------------------  ------------------
+  v1.0.10, v1.1.2       CN=AI Dermatologist v1.0.1, O=Emergent                  46:30:40:EA:3A:91:7C:38:5A:B9:76:5A:E3:97:85:3D:CA:D3:5F:77:2B:52:84:57:4A:AF:BA:46:3F:2C:F5:47
+  v1.1.2 new-icon       CN=AI Dermatologist, O=Vicente C. Cavalida Jr. MD        23:F2:EB:7F:7E:DF:D4:23:50:5B:0A:E2:70:49:68:37:5D:D1:3C:94:3B:9D:1E:A7:1D:56:89:9D:22:5A:31:D1
+                        (local ai-dermatologist-release.keystore)
+  v1.1.7, v1.1.8        CN=DermaLens AI v1.1.4, O=Emergent                      42:5E:9F:E7:20:9E:2D:B1:3F:95:21:78:B3:D5:37:8D:98:F9:44:0C:D4:0A:AD:AB:DE:78:17:B4:FE:EC:B6:A8
+                        (new key generated Sep 16, 2026; valid to 2051-09-16)
+
+Play accepts only the upload key registered for the app. Whichever build was accepted
+first locked in that key. v1.1.8 is signed with a brand-new Emergent key that differs
+from every earlier build. Unless v1.1.7 was already accepted (meaning the 42:5E... key is
+the registered one), this upload will fail with "Your Android App Bundle is signed with
+the wrong key".
+
+What to do: Play Console -> Setup -> App signing -> compare the UPLOAD KEY CERTIFICATE
+fingerprint against the three above. Then either re-sign 1.1.8 with the matching
+keystore, or request an upload-key reset (~2 days). The Emergent build server appears to
+generate a fresh key each time (v1.0.1, v1.1.4) — pin ONE keystore and use it for every
+release.
+
+
+## WHAT'S FINE
+
+  Package                       com.emergent.aidermatologistapp.r2pygs (unchanged)
+  minSdk / targetSdk / compile  24 / 36 / 36 — meets the Aug 2026 requirement (35+)
+  AGP / bundletool              8.12.0 / 1.18.1
+  ABIs                          arm64-v8a, armeabi-v7a, x86, x86_64
+  16 KB page size               56/56 64-bit .so files aligned; PAGE_ALIGNMENT_16K in BundleConfig
+  Signature                     JAR v1 SHA256withRSA, 2048-bit RSA, "jar verified", expires 2051
+                                (APK: v2 scheme verified, same cert)
+  Native debug symbols          Present for all 4 ABIs in BUNDLE-METADATA — Play will symbolicate crashes
+  Baseline profile              Included
+  Store archive                 Enabled
+  debuggable / cleartext        Not set (secure defaults)
+  allowBackup                   true, with dataExtractionRules / fullBackupContent (expo-secure-store rules)
+  Expo SDK                      57.0.0, expo-updates disabled
+  Billing Library               9.1.0 — meets current Play Billing minimum
+  Bundle size                   92.5 MB AAB; ~32-35 MB per-device download (well under 200 MB)
+
+Permissions in manifest:
+  CAMERA, INTERNET, ACCESS_NETWORK_STATE, VIBRATE, USE_BIOMETRIC, USE_FINGERPRINT,
+  com.android.vending.BILLING, READ_EXTERNAL_STORAGE (maxSdk 32),
+  WRITE_EXTERNAL_STORAGE (maxSdk 32), BIND_GET_INSTALL_REFERRER_SERVICE,
+  <package>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION (self-declared, signature-level)
+
+  No READ_MEDIA_IMAGES / READ_MEDIA_VIDEO (photo picker used — no Photo & Video policy form)
+  No AD_ID, no location, no RECORD_AUDIO (correctly listed in blockedPermissions)
+  No sensitive-permission declarations required.
+
+
+## SHOULD FIX (not blockers)
+
+1. App label still includes the version: string/app_name = "DermaLens AI v1.1.8".
+   This is what users see under the launcher icon. Set expo.name to "DermaLens AI".
+
+2. URL scheme is still "frontend" (Emergent template default) in both expo.scheme and
+   the VIEW/BROWSABLE intent-filter. Change to something app-specific (e.g. "dermalens")
+   before relying on deep links.
+
+3. 1.1.7 -> 1.1.8 changed only 8 bytes in base/assets/index.android.bundle (the version
+   string) plus 1 byte in baseline.prof. Manifest: versionCode 121 -> 123, versionName
+   1.1.7 -> 1.1.8. No other code, resources, or native libs changed. If 1.1.8 was meant
+   to include other changes, they did not make it into this build.
+
+
+## CONSOLE-SIDE ITEMS (Play will require these for this app)
+
+  - Health apps declaration (App content -> Health apps) + visible in-app medical
+    disclaimer ("not a substitute for professional diagnosis").
+  - Data safety: declare Photos collected and shared with a third party (images go to
+    Google Gemini via gemini-backend-proxy), plus Health info if analysis results are stored;
+    state encryption in transit and deletion mechanism.
+  - Privacy policy URL (mandatory with camera + health data).
+  - Account deletion: in-app path + web URL, if the app has user accounts.
+  - In-app products: configure under Monetize before review (BILLING is declared).
+  - Camera: store listing should explain the camera's purpose.
+  - New personal developer accounts (created after Nov 2023): closed test with 12+
+    testers for 14 days before production access.
+
+
+## FIX APPLIED (2026-09-17) -> "DermaLens AI v1.1.8-vc124.aab"
+
+Built by build/patch_versioncode.py + build/sign_v118.ps1 from the original v1.1.8 AAB:
+  - base/manifest/AndroidManifest.xml  versionCode 123 -> 124 (matches the Emergent APK, which
+                                       already carried 124; Emergent gives the APK AAB+1)
+  - base/assets/app.config             versionCode 118 -> 124 (cosmetic)
+  - Everything else byte-identical (verified by per-entry CRC diff)
+  - Re-signed with ai-dermatologist-release.keystore:
+      CN=AI Dermatologist, O=Vicente C. Cavalida Jr. MD
+      SHA-256 23:F2:EB:7F:7E:DF:D4:23:50:5B:0A:E2:70:49:68:37:5D:D1:3C:94:3B:9D:1E:A7:1D:56:89:9D:22:5A:31:D1
+  - jarsigner: jar verified.  bundletool validate: exit 0.
+
+PLAY CONSOLE CHECK (2026-09-17, account "aivicventures", personal account):
+  Two draft apps exist, NEITHER has ever had a bundle uploaded ("Certificate fingerprints will be
+  shown here after you upload your first app bundle" on both App signing pages):
+    AI Dermatologist   com.emergent.aidermatologistapp.r2pygs   Draft   <-- this AAB goes HERE
+    DermaLens AI       com.dermalensai.app                      Draft   (different package; the
+                                                                        AAB cannot be uploaded here)
+  Consequences:
+    - No upload key is registered yet. The key that signs the FIRST upload becomes the upload key,
+      so "DermaLens AI v1.1.8-vc124.aab" (local keystore, 23:F2...) is accepted as-is. From then on
+      every release for this package MUST be signed with ai-dermatologist-release.keystore.
+    - No versionCode has been consumed yet, so 124 is fine (123 would also have been, but 124 keeps
+      the AAB and APK in step).
+  Play App Signing on "AI Dermatologist" is enabled (Google-managed key "In use"; one previous
+  signing key from 11 Sep 2026 with 0% install base).
+  If you'd rather ship under the DermaLens AI listing, the app would have to be rebuilt with
+  package com.dermalensai.app (all existing builds are com.emergent.aidermatologistapp.r2pygs).
+
+The original "DermaLens AI v1.1.8.aab" (vc 123, Emergent v1.1.4 key) is left untouched.
+The intermediate build/DermaLens AI v1.1.8-vc124-unsigned.aab can be deleted.
+
+
+## APK NOTE
+
+DermaLens AI v1.1.8.apk is a universal APK (141 MB) signed with the same 42:5E... key,
+verified with APK Signature Scheme v2. Fine for sideload testing. Upload only the .aab
+to Play.
