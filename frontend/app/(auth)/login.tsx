@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { Field } from "@/src/components/Field";
 import { Button } from "@/src/components/Button";
 import { useAuth } from "@/src/auth";
+import { emailError, isValidEmail } from "@/src/validation";
 import { makeStyles, useTheme, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 const HERO = {
@@ -27,18 +28,29 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const emailMsg = emailTouched ? emailError(email) : null;
+
   const onSubmit = async () => {
     setError(null);
+    setEmailTouched(true);
     if (!email.trim() || !password) {
       setError("Please enter your email and password.");
       return;
     }
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     setLoading(true);
     try {
-      await signIn(email, password);
+      const result = await signIn(email, password);
+      // A local-only account from an older build: its address still has to be
+      // confirmed before it can exist on the server.
+      if (result === "needs-verification") router.push("/(auth)/verify");
     } catch (e: any) {
       setError(e?.message || "Login failed. Please try again.");
     } finally {
@@ -71,7 +83,12 @@ export default function Login() {
             <Field
               label="Email address"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => {
+                setEmail(v);
+                if (error) setError(null);
+              }}
+              onBlur={() => setEmailTouched(true)}
+              error={emailMsg}
               placeholder="you@example.com"
               autoCapitalize="none"
               keyboardType="email-address"

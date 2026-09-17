@@ -31,6 +31,11 @@ export function Button({ label, onPress, variant = "primary", loading, disabled,
       testID={testID}
       onPress={onPress}
       disabled={isDisabled}
+      accessibilityRole="button"
+      // Exposes the state to screen readers (and to test tooling, which cannot
+      // infer it from a plain View the way it can from an <button disabled>).
+      accessibilityState={{ disabled: isDisabled, busy: !!loading }}
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.base,
         { backgroundColor: bg, opacity: isDisabled ? 0.55 : pressed ? 0.9 : 1 },

@@ -81,8 +81,57 @@ export function serverLogin(email: string, password: string): Promise<ServerAuth
   return postAuth("/api/auth/login", { email, password });
 }
 
-export function serverSignUp(fullName: string, email: string, password: string): Promise<ServerAuthResult> {
-  return postAuth("/api/auth/signup", { full_name: fullName, email, password });
+/**
+ * Two-step, email-verified sign-up. Step 1 only sends a code — no account is
+ * created until `signUpVerify` confirms it, so an unverified address (or an
+ * offline device) can never produce an account.
+ */
+export interface SignupStartResult {
+  status: number;
+  sent: boolean;
+  detail?: string;
+  expiresInSeconds?: number;
+  resendAfterSeconds?: number;
+}
+
+/** Like postAuth but keeps real 5xx messages (e.g. "we could not send the code"). */
+async function postSignup(path: string, body: unknown): Promise<SignupStartResult> {
+  if (!BASE) throw new OfflineError();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch {
+    throw new OfflineError();
+  } finally {
+    clearTimeout(timer);
+  }
+  const json: any = await res.json().catch(() => ({}));
+  return {
+    status: res.status,
+    sent: res.ok && json?.sent === true,
+    detail: typeof json?.detail === "string" ? json.detail : undefined,
+    expiresInSeconds: typeof json?.expires_in_seconds === "number" ? json.expires_in_seconds : undefined,
+    resendAfterSeconds: typeof json?.resend_after_seconds === "number" ? json.resend_after_seconds : undefined,
+  };
+}
+
+export function signUpStart(fullName: string, email: string, password: string): Promise<SignupStartResult> {
+  return postSignup("/api/auth/signup/start", { full_name: fullName, email, password });
+}
+
+export function signUpResend(email: string): Promise<SignupStartResult> {
+  return postSignup("/api/auth/signup/resend", { email });
+}
+
+export function signUpVerify(email: string, code: string): Promise<ServerAuthResult> {
+  return postAuth("/api/auth/signup/verify", { email, code });
 }
 
 /** True when the backend already has an account for this email. */

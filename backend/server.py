@@ -9,6 +9,7 @@ import hmac
 import hashlib
 import json
 import logging
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -21,6 +22,7 @@ from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from motor.motor_asyncio import AsyncIOMotorClient
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from passlib.context import CryptContext
 from bson import ObjectId
@@ -31,6 +33,13 @@ load_dotenv(ROOT_DIR / '.env')
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 from pages import render_account_deletion_page, render_privacy_policy_page  # noqa: E402
+from email_guard import (  # noqa: E402
+    assert_safe_email,
+    domain_accepts_mail_sync,
+    email_domain,
+    is_disposable_email,
+    malformed_email,
+)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -79,6 +88,18 @@ PLAY_TRIAL_OFFER_IDS = {x.strip() for x in os.environ.get("PLAY_TRIAL_OFFER_IDS"
 # How long the sha256(email)+date deletion record is kept (legal / fraud / billing disputes).
 DELETION_RECORD_RETENTION_DAYS = int(os.getenv("DELETION_RECORD_RETENTION_DAYS", "730"))
 
+# --- Email-verified sign-up ---------------------------------------------------
+# A new account exists only after the emailed code is confirmed, so an unverified
+# (or offline) sign-up cannot create one at all. Accounts made before this was
+# introduced are untouched and keep signing in normally.
+SIGNUP_CODE_TTL_MINUTES = int(os.getenv("SIGNUP_CODE_TTL_MINUTES", "10"))
+SIGNUP_CODE_MAX_ATTEMPTS = int(os.getenv("SIGNUP_CODE_MAX_ATTEMPTS", "5"))
+SIGNUP_RESEND_COOLDOWN_SECONDS = int(os.getenv("SIGNUP_RESEND_COOLDOWN_SECONDS", "60"))
+SIGNUP_MAX_RESENDS = int(os.getenv("SIGNUP_MAX_RESENDS", "3"))
+# Guards our mailer: how many codes one address may be sent per hour.
+SIGNUP_SENDS_PER_HOUR = int(os.getenv("SIGNUP_SENDS_PER_HOUR", "5"))
+MIN_PASSWORD_LENGTH = 8
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=True)
 
@@ -96,7 +117,16 @@ api_router = APIRouter(prefix="/api")
 class SignupIn(BaseModel):
     full_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
+
+
+class SignupVerifyIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=10)
+
+
+class SignupResendIn(BaseModel):
+    email: EmailStr
 
 
 class LoginIn(BaseModel):
@@ -241,22 +271,231 @@ async def analyze_principal(
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
-@api_router.post("/auth/signup", response_model=TokenOut, status_code=201)
-async def signup(data: SignupIn):
-    email = normalized_email(str(data.email))
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
-    user = {
-        "full_name": data.full_name.strip(),
+def _code_hash(email: str, code: str) -> str:
+    """Only the hash of a live code is stored, so a database dump reveals none."""
+    return hashlib.sha256(f"{normalized_email(email)}:{code.strip()}:{JWT_SECRET}".encode()).hexdigest()
+
+
+def _verification_email_html(full_name: str, code: str) -> str:
+    from html import escape
+    first = escape((full_name or "").strip().split(" ")[0] or "there")
+    return (
+        '<table role="presentation" width="100%" style="font-family:Arial,sans-serif;color:#111814">'
+        '<tr><td style="padding:24px">'
+        '<h2 style="margin:0 0 8px">Confirm your email address</h2>'
+        f'<p style="margin:0 0 16px;color:#5C7066">Hi {first}, here is the code that finishes creating '
+        f'your {escape(EMAIL_FROM_NAME)} account.</p>'
+        '<table role="presentation" style="border-collapse:collapse;margin:0 0 16px">'
+        f'<tr><td style="background:#F1F5F3;border-radius:12px;padding:16px 28px;font-size:32px;'
+        f'letter-spacing:8px;font-family:monospace;font-weight:bold;color:#111814">{escape(code)}</td></tr>'
+        '</table>'
+        f'<p style="margin:0 0 16px;color:#5C7066;font-size:14px">Type it into the app to continue. '
+        f'The code stops working in {SIGNUP_CODE_TTL_MINUTES} minutes.</p>'
+        '<p style="margin:0;color:#5C7066;font-size:14px">If you did not try to create an account, '
+        'you can safely ignore this message and no account will be made.</p>'
+        f'<p style="font-size:12px;color:#8E9E96;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. '
+        'We never ask for your password or card details by email.</p>'
+        '</td></tr></table>'
+    )
+
+
+async def _send_user_email(to: str, subject: str, html: str) -> str:
+    """Transactional send to one recipient. Body always comes from a server-side
+    template here, never from request input.
+
+    Returns "sent", "rate_limited" (the mail provider is throttling us) or
+    "failed", so the caller can tell the user something accurate.
+    """
+    assert_safe_email(subject, html)
+    if not EMAIL_KEY:
+        logger.error("EMERGENT_EMAIL_KEY is not configured; cannot send the verification code")
+        return "failed"
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    if SUPPORT_EMAIL:
+        payload["contact_email"] = SUPPORT_EMAIL
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            resp = await hc.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
+                                 headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+        resp.raise_for_status()
+        return "sent"
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Verification email rejected: {e.response.status_code} {e.response.text[:200]}")
+        return "rate_limited" if e.response.status_code == 429 else "failed"
+    except Exception as e:
+        logger.error(f"Verification email failed: {e}")
+        return "failed"
+
+
+async def _assert_signup_email_usable(email: str) -> None:
+    """Three cheap gates before we agree to email anything: shape, throwaway
+    provider, then whether the domain has a mail host at all."""
+    if malformed_email(email):
+        raise HTTPException(status_code=422, detail="Please enter a valid email address.")
+    if is_disposable_email(email):
+        raise HTTPException(
+            status_code=400,
+            detail="Temporary or disposable email addresses are not accepted. Please use a permanent address.",
+        )
+    accepts = await run_in_threadpool(domain_accepts_mail_sync, email_domain(email))
+    if accepts is False:
+        raise HTTPException(
+            status_code=400,
+            detail="That email domain cannot receive mail. Please check your address for typos.",
+        )
+    # accepts is None -> DNS was inconclusive; let it through, the code simply
+    # never arrives if the address is not real.
+
+
+async def _throttle_signup_sends(email: str) -> None:
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    sent = await db.signup_code_sends.count_documents({"email": email, "created_at": {"$gte": since}})
+    if sent >= SIGNUP_SENDS_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many verification codes were requested for this address. Please try again later.",
+        )
+
+
+async def _issue_signup_code(email: str, full_name: str, password_hash: str, resends: int) -> dict:
+    now = datetime.now(timezone.utc)
+    code = f"{secrets.randbelow(1000000):06d}"
+    await db.pending_signups.update_one(
+        {"email": email},
+        {"$set": {
+            "email": email,
+            "full_name": full_name,
+            "password_hash": password_hash,
+            "code_hash": _code_hash(email, code),
+            "attempts": 0,
+            "resends": resends,
+            "last_sent_at": now,
+            "expires_at": now + timedelta(minutes=SIGNUP_CODE_TTL_MINUTES),
+            "created_at": now,
+        }},
+        upsert=True,
+    )
+    sent = await _send_user_email(
+        email,
+        f"Your {EMAIL_FROM_NAME} verification code",
+        _verification_email_html(full_name, code),
+    )
+    if sent != "sent":
+        await db.pending_signups.delete_one({"email": email})
+        if sent == "rate_limited":
+            raise HTTPException(
+                status_code=429,
+                detail="Too many verification emails are being sent right now. Please try again in a few minutes.",
+            )
+        raise HTTPException(
+            status_code=502,
+            detail="We could not send the verification code right now. Please try again in a moment.",
+        )
+    await db.signup_code_sends.insert_one({"email": email, "created_at": now})
+    return {
+        "sent": True,
         "email": email,
-        "password_hash": pwd_context.hash(data.password),
-        "created_at": datetime.now(timezone.utc),
+        "expires_in_seconds": SIGNUP_CODE_TTL_MINUTES * 60,
+        "resend_after_seconds": SIGNUP_RESEND_COOLDOWN_SECONDS,
+    }
+
+
+@api_router.post("/auth/signup/start")
+async def signup_start(data: SignupIn):
+    """Step 1 of 2. Validates the address and emails a code. NO account is created
+    here, so an unverified address can never end up with one."""
+    email = normalized_email(str(data.email))
+    await _assert_signup_email_usable(email)
+    if await db.users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    await _throttle_signup_sends(email)
+    return await _issue_signup_code(email, data.full_name.strip(), pwd_context.hash(data.password), 0)
+
+
+@api_router.post("/auth/signup/resend")
+async def signup_resend(data: SignupResendIn):
+    email = normalized_email(str(data.email))
+    pending = await db.pending_signups.find_one({"email": email})
+    if not pending:
+        raise HTTPException(status_code=400, detail="Please start creating your account again.")
+    if int(pending.get("resends", 0)) >= SIGNUP_MAX_RESENDS:
+        raise HTTPException(
+            status_code=429,
+            detail="We have already resent the code several times. Please start again in a few minutes.",
+        )
+    last_sent = pending.get("last_sent_at")
+    if isinstance(last_sent, datetime):
+        if last_sent.tzinfo is None:
+            last_sent = last_sent.replace(tzinfo=timezone.utc)
+        waited = (datetime.now(timezone.utc) - last_sent).total_seconds()
+        if waited < SIGNUP_RESEND_COOLDOWN_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {int(SIGNUP_RESEND_COOLDOWN_SECONDS - waited)} seconds before asking for a new code.",
+            )
+    await _throttle_signup_sends(email)
+    return await _issue_signup_code(
+        email, pending.get("full_name", ""), pending["password_hash"], int(pending.get("resends", 0)) + 1
+    )
+
+
+@api_router.post("/auth/signup/verify", response_model=TokenOut, status_code=201)
+async def signup_verify(data: SignupVerifyIn):
+    """Step 2 of 2. The correct code is the only thing that creates the account."""
+    email = normalized_email(str(data.email))
+    pending = await db.pending_signups.find_one({"email": email})
+    if not pending:
+        raise HTTPException(status_code=400, detail="Please start creating your account again.")
+
+    expires_at = pending.get("expires_at")
+    if isinstance(expires_at, datetime):
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            await db.pending_signups.delete_one({"email": email})
+            raise HTTPException(status_code=400, detail="That code has expired. Please request a new one.")
+
+    if int(pending.get("attempts", 0)) >= SIGNUP_CODE_MAX_ATTEMPTS:
+        await db.pending_signups.delete_one({"email": email})
+        raise HTTPException(status_code=429, detail="Too many incorrect codes. Please start again.")
+
+    if not hmac.compare_digest(pending.get("code_hash", ""), _code_hash(email, data.code)):
+        await db.pending_signups.update_one({"email": email}, {"$inc": {"attempts": 1}})
+        left = SIGNUP_CODE_MAX_ATTEMPTS - int(pending.get("attempts", 0)) - 1
+        detail = "That code is not correct."
+        if left > 0:
+            detail += f" You have {left} attempt{'s' if left != 1 else ''} left."
+        raise HTTPException(status_code=400, detail=detail)
+
+    if await db.users.find_one({"email": email}, {"_id": 1}):
+        await db.pending_signups.delete_one({"email": email})
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+
+    now = datetime.now(timezone.utc)
+    user = {
+        "full_name": (pending.get("full_name") or "").strip(),
+        "email": email,
+        "password_hash": pending["password_hash"],
+        "created_at": now,
+        "email_verified": True,
+        "email_verified_at": now,
     }
     result = await db.users.insert_one(user)
     user["_id"] = result.inserted_id
+    await db.pending_signups.delete_one({"email": email})
     pu = public_user(user)
     return TokenOut(access_token=create_access_token(pu.id), user=pu)
+
+
+@api_router.post("/auth/signup", status_code=410)
+async def signup_legacy():
+    """Superseded by the two-step /auth/signup/start + /auth/signup/verify flow.
+    Kept as an explicit 410 so an older app build cannot create an account whose
+    email was never verified."""
+    raise HTTPException(
+        status_code=410,
+        detail="Email verification is now required to create an account. Please update to the latest version of the app.",
+    )
 
 
 @api_router.post("/auth/login", response_model=TokenOut)
@@ -576,10 +815,13 @@ async def request_activation(data: ActivationRequestIn, current_user: PublicUser
     })
 
     if EMAIL_KEY and ADMIN_EMAIL:
+        subject = f"Device activation request \u2014 {current_user.full_name}"
+        html = _activation_email_html(current_user.full_name, current_user.email, device_id)
+        assert_safe_email(subject, html)
         payload = {
             "to": [ADMIN_EMAIL],
-            "subject": f"Device activation request \u2014 {current_user.full_name}",
-            "html": _activation_email_html(current_user.full_name, current_user.email, device_id),
+            "subject": subject,
+            "html": html,
             "from_name": EMAIL_FROM_NAME,
         }
         try:
@@ -666,6 +908,7 @@ def _email_hash(email: str) -> str:
 
 
 async def _send_admin_email(subject: str, html: str) -> bool:
+    assert_safe_email(subject, html)
     if not (EMAIL_KEY and ADMIN_EMAIL):
         return False
     try:
@@ -925,8 +1168,6 @@ async def verify_subscription(data: SubscriptionVerifyIn, current_user: PublicUs
     account is configured the app falls back to Billing Library status only."""
     if not PLAY_SERVICE_ACCOUNT_JSON.strip():
         return {"configured": False}
-
-    from starlette.concurrency import run_in_threadpool
 
     try:
         token = await run_in_threadpool(_play_access_token_sync)
@@ -1213,6 +1454,10 @@ async def startup():
     )
     await db.deletion_attempts.create_index("created_at", expireAfterSeconds=DELETION_ATTEMPT_WINDOW_MINUTES * 60)
     await db.subscriptions.create_index([("user_id", 1), ("productId", 1)], unique=True)
+    # Un-finished sign-ups and the send counter clean themselves up.
+    await db.pending_signups.create_index("email", unique=True)
+    await db.pending_signups.create_index("created_at", expireAfterSeconds=3600)
+    await db.signup_code_sends.create_index("created_at", expireAfterSeconds=3600)
 
 
 @app.on_event("shutdown")

@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { Field } from "@/src/components/Field";
 import { Button } from "@/src/components/Button";
 import { useAuth } from "@/src/auth";
+import { emailError, isValidEmail, passwordError, MIN_PASSWORD_LENGTH } from "@/src/validation";
 import { makeStyles, useTheme, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 const HERO = {
@@ -23,25 +24,34 @@ export default function Signup() {
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signUp } = useAuth();
+  const { startSignUp } = useAuth();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [touched, setTouched] = useState({ email: false, password: false });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+  // Inline messages appear once the field has been used, so the form does not
+  // shout at someone who is still typing their address.
+  const emailMsg = touched.email ? emailError(email) : null;
+  const passwordMsg = touched.password ? passwordError(password) : null;
+  const canSubmit = !!fullName.trim() && isValidEmail(email) && password.length >= MIN_PASSWORD_LENGTH;
 
   const onSubmit = async () => {
     setError(null);
+    setTouched({ email: true, password: true });
     if (!fullName.trim()) return setError("Please enter your full name.");
     if (!isValidEmail(email)) return setError("Please enter a valid email address.");
-    if (password.length < 8) return setError("Password must be at least 8 characters.");
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    }
 
     setLoading(true);
     try {
-      await signUp(fullName, email, password);
+      await startSignUp(fullName, email, password);
+      router.push("/(auth)/verify");
     } catch (e: any) {
       setError(e?.message || "Sign up failed. Please try again.");
     } finally {
@@ -79,7 +89,12 @@ export default function Signup() {
             <Field
               label="Email address"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => {
+                setEmail(v);
+                if (error) setError(null);
+              }}
+              onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+              error={emailMsg}
               placeholder="you@example.com"
               autoCapitalize="none"
               keyboardType="email-address"
@@ -89,11 +104,21 @@ export default function Signup() {
             <Field
               label="Password"
               value={password}
-              onChangeText={setPassword}
-              placeholder="At least 8 characters"              secureTextEntry
+              onChangeText={(v) => {
+                setPassword(v);
+                if (error) setError(null);
+              }}
+              onBlur={() => setTouched((t) => ({ ...t, password: true }))}
+              error={passwordMsg}
+              placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+              secureTextEntry
               containerTestID="signup-password"
             />
           </View>
+
+          <Text style={styles.hint}>
+            We email you a 6-digit code to confirm your address, so keep this device online.
+          </Text>
 
           {error && (
             <Text style={styles.error} testID="signup-error">
@@ -111,7 +136,13 @@ export default function Signup() {
 
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-          <Button label="Create account" onPress={onSubmit} loading={loading} testID="signup-submit" />
+          <Button
+            label="Continue"
+            onPress={onSubmit}
+            loading={loading}
+            disabled={!canSubmit}
+            testID="signup-submit"
+          />
         </View>
       </KeyboardStickyView>
     </View>
@@ -127,6 +158,13 @@ const useStyles = makeStyles((colors) => ({
   logo: { width: 96, height: 96, borderRadius: radius.lg, marginBottom: spacing.md },
   title: { fontFamily: fonts.display, fontSize: fontSize["3xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.muted, marginTop: spacing.xs },
+  hint: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    marginTop: spacing.xs,
+    lineHeight: 18,
+  },
   error: { color: colors.error, fontFamily: fonts.bodyMedium, fontSize: fontSize.base, marginTop: spacing.xs },
   switch: { marginTop: spacing.xl, alignItems: "center" },
   switchText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.muted },

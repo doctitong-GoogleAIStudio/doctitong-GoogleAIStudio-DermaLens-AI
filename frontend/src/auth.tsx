@@ -1,11 +1,10 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 
 import {
   localDeleteAccount,
   localGetSession,
   localSignIn,
   localSignOut,
-  localSignUp,
   localUpsertAccount,
   localVerify,
 } from "@/src/localAuth";
@@ -15,20 +14,44 @@ import {
   serverDeleteAccount,
   serverEmailExists,
   serverLogin,
-  serverSignUp,
   setToken,
+  signUpResend,
+  signUpStart,
+  signUpVerify,
   tokenIsValid,
+  type SignupStartResult,
 } from "@/src/api";
 import { clearUserData } from "@/src/localData";
+import { emailError, normalizeEmail, passwordError } from "@/src/validation";
 import type { AuthUser } from "@/src/types";
+
+/** A sign-in either lands in the app, or needs the emailed code first. */
+export type SignInResult = "signed-in" | "needs-verification";
+
+export interface PendingSignup {
+  fullName: string;
+  email: string;
+  resendAfterSeconds: number;
+}
 
 interface AuthContextValue {
   ready: boolean;
   user: AuthUser | null;
   /** A local session exists but the app has no valid backend token yet. */
   needsReconnect: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (fullName: string, email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<SignInResult>;
+  /**
+   * Step 1 of sign-up: validates the address and asks the backend to email a
+   * code. No account — local or remote — exists until `confirmSignUp` succeeds,
+   * which is why this needs a connection.
+   */
+  startSignUp: (fullName: string, email: string, password: string) => Promise<void>;
+  /** Step 2: the code creates the account and signs the user in. */
+  confirmSignUp: (code: string) => Promise<void>;
+  resendCode: () => Promise<SignupStartResult>;
+  cancelSignUp: () => void;
+  /** Set between the two sign-up steps; drives the confirmation screen. */
+  pendingSignup: PendingSignup | null;
   /** Re-authenticates an existing local session so AI analysis works again. */
   reconnect: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -42,6 +65,9 @@ interface AuthContextValue {
 const WRONG_PASSWORD_ON_SERVER =
   "This email is registered with a different password. Use that password or reset it.";
 const BAD_CREDENTIALS = "Email or password is incorrect.";
+const NEEDS_INTERNET =
+  "An internet connection is required to create an account, so we can email you a verification code.";
+const SESSION_GONE = "Please start creating your account again.";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -49,6 +75,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [pendingSignup, setPendingSignup] = useState<PendingSignup | null>(null);
+  // The password only ever lives in memory between the two sign-up steps -
+  // never in a route param, never on disk.
+  const pendingCredentials = useRef<{ fullName: string; email: string; password: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -69,63 +99,116 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * on another phone work. A legacy local-only account (older builds had no
    * server) is migrated by registering it with the same credentials.
    */
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string): Promise<SignInResult> => {
+    const clean = normalizeEmail(email);
     try {
-      const res = await serverLogin(email, password);
+      const res = await serverLogin(clean, password);
       if (res.status === 200 && res.token) {
         await setToken(res.token);
-        setUser(await localUpsertAccount(res.fullName ?? "", email, password));
+        setUser(await localUpsertAccount(res.fullName ?? "", clean, password));
         setNeedsReconnect(false);
-        return;
+        return "signed-in";
       }
 
       // Not on the server — migrate the local account if the password matches.
-      const local = await localVerify(email, password);
+      const local = await localVerify(clean, password);
       if (!local) {
         // No local account either: say which of the two problems it is.
-        if (await serverEmailExists(email)) throw new Error(WRONG_PASSWORD_ON_SERVER);
+        if (await serverEmailExists(clean)) throw new Error(WRONG_PASSWORD_ON_SERVER);
         throw new Error(BAD_CREDENTIALS);
       }
 
-      const signup = await serverSignUp(local.full_name, email, password);
-      if (signup.token) {
-        await setToken(signup.token);
-        setUser(await localUpsertAccount(local.full_name, email, password));
-        setNeedsReconnect(false);
-        return;
+      // A local-only account from an older build. Claiming it on the server now
+      // means confirming the address first, so send the code instead of
+      // silently creating an unverified account.
+      const start = await signUpStart(local.full_name, clean, password);
+      if (start.sent) {
+        setPendingSignup({
+          fullName: local.full_name,
+          email: clean,
+          resendAfterSeconds: start.resendAfterSeconds ?? 60,
+        });
+        pendingCredentials.current = { fullName: local.full_name, email: clean, password };
+        return "needs-verification";
       }
-      if (signup.status === 409) throw new Error(WRONG_PASSWORD_ON_SERVER);
-      throw new Error(BAD_CREDENTIALS);
+      if (start.status === 409) throw new Error(WRONG_PASSWORD_ON_SERVER);
+      throw new Error(start.detail ?? BAD_CREDENTIALS);
     } catch (e) {
       if (!(e instanceof OfflineError)) throw e;
       // Offline: local sign-in only. AI analysis stays disabled until online.
-      setUser(await localSignIn(email, password));
+      setUser(await localSignIn(clean, password));
       setNeedsReconnect(true);
+      return "signed-in";
     }
   }, []);
 
-  const signUp = useCallback(async (fullName: string, email: string, password: string) => {
-    const account = await localSignUp(fullName, email, password);
-    setUser(account);
+  const startSignUp = useCallback(async (fullName: string, email: string, password: string) => {
+    const name = fullName.trim();
+    const clean = normalizeEmail(email);
+    if (!name) throw new Error("Please enter your full name.");
+    const invalid = emailError(clean) ?? (clean ? null : "Please enter a valid email address.");
+    if (invalid) throw new Error(invalid);
+    const weak = passwordError(password) ?? (password ? null : "Please enter a password.");
+    if (weak) throw new Error(weak);
+
+    let res: SignupStartResult;
     try {
-      const res = await serverSignUp(fullName, account.email, password);
-      if (res.token) {
-        await setToken(res.token);
-        setNeedsReconnect(false);
-        return;
-      }
-      if (res.status === 409) {
-        const login = await serverLogin(account.email, password);
-        if (login.token) {
-          await setToken(login.token);
-          setNeedsReconnect(false);
-          return;
-        }
-      }
-      setNeedsReconnect(true);
-    } catch {
-      setNeedsReconnect(true); // offline
+      res = await signUpStart(name, clean, password);
+    } catch (e) {
+      if (e instanceof OfflineError) throw new Error(NEEDS_INTERNET);
+      throw e;
     }
+    if (!res.sent) {
+      throw new Error(res.detail ?? "We could not start creating your account. Please try again.");
+    }
+    setPendingSignup({ fullName: name, email: clean, resendAfterSeconds: res.resendAfterSeconds ?? 60 });
+    pendingCredentials.current = { fullName: name, email: clean, password };
+  }, []);
+
+  const confirmSignUp = useCallback(async (code: string) => {
+    const creds = pendingCredentials.current;
+    if (!creds) throw new Error(SESSION_GONE);
+
+    let res;
+    try {
+      res = await signUpVerify(creds.email, code.trim());
+    } catch (e) {
+      if (e instanceof OfflineError) {
+        throw new Error("No internet connection. Connect to the internet and try again.");
+      }
+      throw e;
+    }
+
+    if (res.token) {
+      await setToken(res.token);
+      // The account is verified, so it is now safe to keep it on this phone for
+      // offline sign-in.
+      setUser(await localUpsertAccount(res.fullName ?? creds.fullName, creds.email, creds.password));
+      setNeedsReconnect(false);
+      setPendingSignup(null);
+      pendingCredentials.current = null;
+      return;
+    }
+    throw new Error(res.detail ?? "That code could not be confirmed. Please try again.");
+  }, []);
+
+  const resendCode = useCallback(async (): Promise<SignupStartResult> => {
+    const creds = pendingCredentials.current;
+    if (!creds) throw new Error(SESSION_GONE);
+    let res: SignupStartResult;
+    try {
+      res = await signUpResend(creds.email);
+    } catch (e) {
+      if (e instanceof OfflineError) throw new Error(NEEDS_INTERNET);
+      throw e;
+    }
+    if (!res.sent) throw new Error(res.detail ?? "Could not send a new code. Please try again.");
+    return res;
+  }, []);
+
+  const cancelSignUp = useCallback(() => {
+    setPendingSignup(null);
+    pendingCredentials.current = null;
   }, []);
 
   const reconnect = useCallback(
@@ -143,14 +226,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const local = await localVerify(user.email, password);
         if (!local) throw new Error("That password is incorrect.");
 
-        const signup = await serverSignUp(local.full_name, user.email, password);
-        if (signup.token) {
-          await setToken(signup.token);
-          setNeedsReconnect(false);
-          return;
-        }
-        if (signup.status === 409) throw new Error(WRONG_PASSWORD_ON_SERVER);
-        throw new Error("Could not enable AI analysis. Please try again.");
+        // The password is right but this account only exists on the phone, and
+        // an account may no longer reach the server without a confirmed email.
+        throw new Error(
+          "This account's email has not been confirmed yet. Please sign out and sign in again to get a code by email.",
+        );
       } catch (e) {
         if (e instanceof OfflineError) {
           throw new Error("No internet connection. Connect to the internet and try again.");
@@ -165,6 +245,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await localSignOut();
     await clearToken();
     setNeedsReconnect(false);
+    setPendingSignup(null);
+    pendingCredentials.current = null;
     setUser(null);
   }, []);
 
@@ -204,7 +286,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ ready, user, needsReconnect, signIn, signUp, reconnect, signOut, deleteAccount }}>
+    <AuthContext.Provider value={{
+        ready,
+        user,
+        needsReconnect,
+        signIn,
+        startSignUp,
+        confirmSignUp,
+        resendCode,
+        cancelSignUp,
+        pendingSignup,
+        reconnect,
+        signOut,
+        deleteAccount,
+      }}>
       {children}
     </AuthContext.Provider>
   );

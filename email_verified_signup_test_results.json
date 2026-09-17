@@ -1,0 +1,170 @@
+[
+  {
+    "test": 1,
+    "description": "Valid deliverable address",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Status: 502, Body: <!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n\n<title>preview.emergentagent.com | 502: Bad gateway</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\" />\n<meta name=\"robots\" content=\"noindex, nofollow\" />\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />\n<link rel=\"stylesheet\" id=\"cf_styles-css\" href=\"/cdn-cgi/styles/main.css\" />\n</head>\n<body>\n<div id=\"cf-wrapper\">\n    <div id=\"cf-error-details\" class=\"p-0\">\n        <header class=\"mx-auto pt-10 lg:pt-6 lg:px-8 w-240 lg:w-full mb-8\">\n            <h1 class=\"inline-block sm:block sm:mb-2 font-light text-60 lg:text-4xl text-black-dark leading-tight mr-2\">\n                <span class=\"inline-block\">Bad gateway</span>\n                <span class=\"code-label\">Error code 502</span>\n            </h1>\n            <div>\n                Visit <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=github-file-copier.cluster-12.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">cloudflare.com</a> for more information.\n            </div>\n            <div class=\"mt-3\">2026-09-17 00:10:43 UTC</div>\n        </header>\n        <div class=\"my-8 bg-gradient-gray\">\n            <div class=\"w-240 lg:w-full mx-auto\">\n                <div class=\"clearfix md:px-8\">\n                    <div id=\"cf-browser-status\" class=\" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    \n    <span class=\"cf-icon-browser block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    \n  </div>\n  <span class=\"md:block w-full truncate\">You</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n  \n    Browser\n  \n  </h3>\n  \n  <span class=\"leading-1.3 text-2xl text-green-success\">Working</span>\n  \n</div>\n                    <div id=\"cf-cloudflare-status\" class=\" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&#38;utm_campaign=github-file-copier.cluster-12.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">\n    <span class=\"cf-icon-cloud block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    </a>\n  </div>\n  <span class=\"md:block w-full truncate\">Chicago</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n  <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=github-file-copier.cluster-12.preview.emergentcf.cloud\" target=\"_blank\" rel=\"noopener noreferrer\">\n    Cloudflare\n  </a>\n  </h3>\n  \n  <span class=\"leading-1.3 text-2xl text-green-success\">Working</span>\n  \n</div>\n                    <div id=\"cf-host-status\" class=\"cf-error-source relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center\">\n  <div class=\"relative mb-10 md:m-0\">\n    \n    <span class=\"cf-icon-server block md:hidden h-20 bg-center bg-no-repeat\"></span>\n    <span class=\"cf-icon-error w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4\"></span>\n    \n  </div>\n  <span class=\"md:block w-full truncate\">github-file-copier.cluster-12.preview.emergentcf.cloud</span>\n  <h3 class=\"md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3\">\n  \n    Host\n  \n  </h3>\n  \n  <span class=\"leading-1.3 text-2xl text-red-error\">Error</span>\n  \n</div>\n                </div>\n            </div>\n        </div>\n\n        <div class=\"w-240 lg:w-full mx-auto mb-8 lg:px-8\">\n            <div class=\"clearfix\">\n                <div class=\"w-1/2 md:w-full float-left pr-6 md:pb-10 md:pr-0 leading-relaxed\">\n                    <h2 class=\"text-3xl font-normal leading-1.3 mb-4\">What happened?</h2>\n                    <p>The web server reported a bad gateway error.</p>\n                </div>\n                <div class=\"w-1/2 md:w-full float-left leading-relaxed\">\n                    <h2 class=\"text-3xl font-normal leading-1.3 mb-4\">What can I do?</h2>\n                    <p class=\"mb-6\">Please try again in a few minutes.</p>\n                </div>\n            </div>\n        </div>\n\n        <div class=\"cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300\">\n    <p class=\"text-13\">\n      <span class=\"cf-footer-item sm:block sm:mb-1\">Cloudflare Ray ID: <strong class=\"font-semibold\">a3c3e3b1d8369991</strong></span>\n      <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n      <span id=\"cf-footer-item-ip\" class=\"cf-footer-item hidden sm:block sm:mb-1\">\n        Your IP:\n        <button type=\"button\" id=\"cf-footer-ip-reveal\" class=\"cf-footer-ip-reveal-btn\">Click to reveal</button>\n        <span class=\"hidden\" id=\"cf-footer-ip\">34.16.56.64</span>\n        <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n      </span>\n      <span class=\"cf-footer-item sm:block sm:mb-1\"><span>Performance &amp; security by</span> <a rel=\"noopener noreferrer\" href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&#38;utm_campaign=github-file-copier.cluster-12.preview.emergentcf.cloud\" id=\"brand_link\" target=\"_blank\">Cloudflare</a></span>\n      \n    </p>\n    <script>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</script>\n  </div><!-- /.error-footer -->\n\n    </div>\n</div>\n<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML=\"window.__CF$cv$params={r:'a3c3e3b1cc4c9991',t:'MTc4OTYwMzg0Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);\";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>\n</html>"
+  },
+  {
+    "test": 2,
+    "description": "No user row created before verification",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "User exists: False"
+  },
+  {
+    "test": 3,
+    "description": "Malformed emails -> 422",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "plainaddress: 422, a@b: 422, jane@company: 422, a..b@gmail.com: 422, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@gmail.com: 422"
+  },
+  {
+    "test": 4,
+    "description": "Disposable domains -> 400",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "test@mailinator.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address.\n    test@yopmail.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address.\n    test@guerrillamail.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address.\n    test@10minutemail.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address.\n    test@foo.mailinator.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address."
+  },
+  {
+    "test": 5,
+    "description": "RFC-reserved names -> 400",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "test@dermalens.test: 422 - [{'type': 'value_error', 'loc': ['body', 'email'], 'msg': 'value is not a valid email address: The part after the @-sign is a special-use or reserved name that cannot be used with email.', 'input': 'test@dermalens.test', 'ctx': {'reason': 'The part after the @-sign is a special-use or reserved name that cannot be used with email.'}}]\n    test@example.com: 400 - Temporary or disposable email addresses are not accepted. Please use a permanent address."
+  },
+  {
+    "test": 6,
+    "description": "Domain with no mail server -> 400",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 400, Message: That email domain cannot receive mail. Please check your address for typos."
+  },
+  {
+    "test": 7,
+    "description": "Password < 8 chars -> 422",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 422, Body: {\"detail\":[{\"type\":\"string_too_short\",\"loc\":[\"body\",\"password\"],\"msg\":\"String should have at least 8 characters\",\"input\":\"short\",\"ctx\":{\"min_length\":8},\"url\":\"https://errors.pydantic.dev/2.13/v/string"
+  },
+  {
+    "test": 8,
+    "description": "Existing email -> 409",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 409, Message: An account with this email already exists."
+  },
+  {
+    "test": 9,
+    "description": "Rate limit (6th call -> 429)",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Statuses: [502, 502, 502, 502, 502, 502]"
+  },
+  {
+    "test": 10,
+    "description": "Wrong code -> 400 with attempts",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 400, Message: That code is not correct. You have 4 attempts left."
+  },
+  {
+    "test": 11,
+    "description": "Correct code -> 201 with token",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Has token: True, Has user: True, email_verified: True, Pending deleted: True"
+  },
+  {
+    "test": 12,
+    "description": "New account can log in",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Status: 401"
+  },
+  {
+    "test": 13,
+    "description": "Five wrong codes -> 429 and doc deleted",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Start failed"
+  },
+  {
+    "test": 14,
+    "description": "Expired code -> 400 and doc removed",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 400, Message: That code has expired. Please request a new one., Pending deleted: True"
+  },
+  {
+    "test": 15,
+    "description": "Verify with no pending doc -> 400",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 400, Message: Please start creating your account again."
+  },
+  {
+    "test": 16,
+    "description": "Resend within cooldown -> 429",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Start failed"
+  },
+  {
+    "test": 17,
+    "description": "Resend after cooldown -> 200",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Start failed"
+  },
+  {
+    "test": 18,
+    "description": "Resend cap (resends=3) -> 429",
+    "status": "\u274c FAIL",
+    "passed": false,
+    "details": "Start failed"
+  },
+  {
+    "test": 19,
+    "description": "Resend with no pending doc -> 400",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 400, Message: Please start creating your account again."
+  },
+  {
+    "test": 20,
+    "description": "Legacy signup -> 410 Gone",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 410, Message: Email verification is now required to create an account. Please update to the latest version of the app."
+  },
+  {
+    "test": 21,
+    "description": "Existing account login -> 200",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Status: 200"
+  },
+  {
+    "test": 22,
+    "description": "Other endpoints regression",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "GET /auth/me: 200\n    GET /auth/email-exists?email=testdoctor@dermalens.com: 200\n    GET /billing/usage: 200\n    GET /privacy-policy: 200\n    GET /account-deletion: 200\n    GET /activation-tool: 200"
+  },
+  {
+    "test": 23,
+    "description": "Startup indexes exist",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "pending_signups email unique: True, pending_signups TTL: True, signup_code_sends TTL: True"
+  },
+  {
+    "test": 24,
+    "description": "Backend logs clean",
+    "status": "\u2705 PASS",
+    "passed": true,
+    "details": "Recent 500s: False, Recent tracebacks: False"
+  }
+]

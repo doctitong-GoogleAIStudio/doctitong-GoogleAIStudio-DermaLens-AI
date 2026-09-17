@@ -6,9 +6,11 @@ import { makeStyles, useTheme, radius, spacing, fonts, fontSize } from "@/src/th
 interface FieldProps extends TextInputProps {
   label: string;
   containerTestID?: string;
+  /** Inline validation message shown under the input. */
+  error?: string | null;
 }
 
-export function Field({ label, containerTestID, style, ...props }: FieldProps) {
+export function Field({ label, containerTestID, error, style, ...props }: FieldProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
@@ -16,9 +18,14 @@ export function Field({ label, containerTestID, style, ...props }: FieldProps) {
       <Text style={styles.label}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.muted}
-        style={[styles.input, style]}
+        style={[styles.input, !!error && { borderColor: colors.error }, style]}
         {...props}
       />
+      {!!error && (
+        <Text style={styles.fieldError} testID={containerTestID ? `${containerTestID}-error` : undefined}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 }
@@ -41,5 +48,11 @@ const useStyles = makeStyles((colors) => ({
     fontFamily: fonts.body,
     fontSize: fontSize.lg,
     color: colors.onSurface,
+  },
+  fieldError: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSize.sm,
+    color: colors.error,
+    marginTop: spacing.xs,
   },
 }));
