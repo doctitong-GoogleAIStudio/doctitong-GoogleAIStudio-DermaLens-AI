@@ -95,6 +95,6 @@ signing.properties
 keystore.properties
 *.keystore.txt
 *upload-cert*.pem
-.env
-.env.*
-*.env
+# NOTE: backend/.env and frontend/.env are deliberately NOT ignored — the
+# deployment pipeline needs them in the repo (it rewrites the values for
+# production). Do not re-add .env patterns here without checking deployment.
