@@ -12,8 +12,9 @@ GCash QR for payment (owner to upload).
 ## Architecture
 - Frontend: Expo (React Native) + expo-router. Sage-green clinical theme, light + dark.
 - Backend: FastAPI + MongoDB (motor). JWT auth (passlib/bcrypt + pyjwt).
-- AI: Gemini 3.1 Pro (gemini-3.1-pro-preview) via Emergent LLM key + emergentintegrations.
-- Email: Emergent-managed Resend (activation requests to hidden admin).
+- AI: Gemini 3.1 Pro (gemini-3.1-pro-preview) called server-side with your own GEMINI_API_KEY.
+- Email: SMTP or Resend, configured in backend/.env (activation requests to hidden admin).
+- Hosting: self-hosted — see docs/SELF-HOSTING.md.
 - History: on-device only (@/src/utils/storage), images persisted to app documents dir.
 - Offline activation: HMAC-SHA256(ACTIVATION_SECRET, DeviceID) — identical in app (js-sha256),
   backend (python hmac), and the downloadable HTML generator (GET /api/activation-tool).

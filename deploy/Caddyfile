@@ -1,0 +1,55 @@
+# Caddy reverse proxy for a self-hosted DermaLens AI.
+# Caddy obtains and renews Let's Encrypt certificates automatically — the only
+# requirements are that the domains' A/AAAA records point at this host and that
+# ports 80 and 443 reach it.
+#
+# Used by the `proxy` compose profile:
+#   docker compose --profile proxy up -d
+
+{
+	email {$TLS_EMAIL}
+}
+
+# --- API ---------------------------------------------------------------------
+{$API_DOMAIN} {
+	encode gzip
+
+	# The app posts base64 photos to /api/analyze; the default 10MB is tight.
+	request_body {
+		max_size 32MB
+	}
+
+	reverse_proxy backend:8000 {
+		health_uri /api/health
+		health_interval 30s
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access-api.log
+	}
+}
+
+# --- Web app (only when the `web` profile is running) -------------------------
+# Leave WEB_DOMAIN unset if you only serve the mobile app; the fallback below is
+# an internal-only address that never requests a public certificate.
+{$WEB_DOMAIN:web.localhost} {
+	encode gzip
+	reverse_proxy web:80
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	log {
+		output file /data/access-web.log
+	}
+}

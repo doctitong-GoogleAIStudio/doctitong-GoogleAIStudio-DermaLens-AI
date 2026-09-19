@@ -1,0 +1,10 @@
+# Test and lint tooling. Not needed to run the server.
+-r requirements.txt
+
+pytest==9.1.1
+pytest-xdist==3.8.0
+
+black==26.5.1
+flake8==7.3.0
+isort==9.0.1
+mypy==2.3.1

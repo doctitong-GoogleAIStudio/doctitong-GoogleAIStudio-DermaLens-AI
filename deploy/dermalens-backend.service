@@ -1,0 +1,49 @@
+# systemd unit for running the backend directly on a VM (no Docker).
+#
+#   sudo cp deploy/dermalens-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dermalens-backend
+#
+# Assumes the repo is at /opt/dermalens with a virtualenv at /opt/dermalens/.venv
+# and secrets in /opt/dermalens/backend/.env (chmod 600, owned by dermalens).
+
+[Unit]
+Description=DermaLens AI backend (FastAPI)
+Documentation=https://github.com/doctitong-GoogleAIStudio/doctitong-GoogleAIStudio-DermaLens-AI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=dermalens
+Group=dermalens
+WorkingDirectory=/opt/dermalens/backend
+EnvironmentFile=/opt/dermalens/backend/.env
+ExecStart=/opt/dermalens/.venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --proxy-headers \
+    --forwarded-allow-ips='*'
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Hardening — the service only needs to read its own directory and reach the network.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/opt/dermalens/backend
+
+[Install]
+WantedBy=multi-user.target

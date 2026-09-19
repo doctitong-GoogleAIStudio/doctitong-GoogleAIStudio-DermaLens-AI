@@ -49,7 +49,9 @@ PLAY_TRIAL_OFFER_IDS=freetrial-7d          # optional: which Play offer ids are 
 DELETION_RECORD_RETENTION_DAYS=730
 ```
 
-`EMERGENT_EMAIL_KEY` + `ADMIN_EMAIL` (already used for activation requests) also deliver deletion-request notifications.
+`ADMIN_EMAIL` plus an email provider (`SMTP_*` or `RESEND_API_KEY` — see backend/.env.example)
+also deliver deletion-request notifications. With email unconfigured the deletion still happens;
+only the notification is skipped.
 
 ## Google Play Console — manual steps
 

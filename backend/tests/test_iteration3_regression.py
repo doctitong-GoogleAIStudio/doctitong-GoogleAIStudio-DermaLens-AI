@@ -11,7 +11,7 @@ import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/")
 if not BASE_URL:
-    BASE_URL = "https://ai-dermatologist-app.preview.emergentagent.com"
+    BASE_URL = "http://localhost:8000"
 
 
 @pytest.fixture(scope="module")

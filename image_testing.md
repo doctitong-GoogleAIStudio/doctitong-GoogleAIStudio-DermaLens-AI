@@ -15,4 +15,4 @@
 `POST /api/analyze` (requires `Authorization: Bearer <token>`)
 Body: `{ "images": ["<base64 or data-uri>", ...] }` (1–6 images)
 Returns the Diagnosis JSON: imageQuality, mostLikelyDiagnosis, differentialDiagnoses, nextSteps, disclaimer.
-Model: gemini-3.1-pro-preview via Emergent LLM key.
+Model: gemini-3.1-pro-preview, called server-side with GEMINI_API_KEY.

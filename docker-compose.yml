@@ -1,0 +1,88 @@
+# DermaLens AI — self-hosted stack.
+#
+#   mongo     database (local volume; swap for MongoDB Atlas by setting MONGO_URL)
+#   backend   FastAPI API on :8000
+#   web       exported Expo web build on :8080 (optional — the mobile app does
+#             not need it; start it with `--profile web`)
+#   caddy     TLS termination + reverse proxy (optional — `--profile proxy`)
+#
+# Quick start:
+#   cp backend/.env.example backend/.env   # then fill in the secrets
+#   docker compose up -d --build
+#
+# See docs/SELF-HOSTING.md for TLS, backups and the mobile build.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-dermalens}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    # Not published to the host: only the backend needs to reach it.
+    expose:
+      - "27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # Overrides whatever MONGO_URL is in backend/.env so the container talks to
+      # the compose service rather than localhost. Comment this out to use an
+      # external database (Atlas) configured in backend/.env.
+      MONGO_URL: mongodb://${MONGO_ROOT_USER:-dermalens}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      # Bind to loopback only — Caddy/nginx terminates TLS in front of it.
+      # Change to "8000:8000" only if you are testing without a proxy.
+      - "127.0.0.1:8000:8000"
+
+  web:
+    profiles: ["web"]
+    build:
+      context: ./frontend
+      args:
+        # Must be the public https origin of the backend, as the browser sees it.
+        EXPO_PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:?set PUBLIC_BACKEND_URL in .env}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+
+  caddy:
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
+      WEB_DOMAIN: ${WEB_DOMAIN:-}
+      TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:
+  mongo-config:
+  caddy-data:
+  caddy-config:

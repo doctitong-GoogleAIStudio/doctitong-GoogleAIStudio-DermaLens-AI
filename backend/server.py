@@ -31,6 +31,7 @@ load_dotenv(ROOT_DIR / '.env')
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 from pages import render_account_deletion_page, render_privacy_policy_page  # noqa: E402
+from mailer import send_email, email_enabled, admin_recipients, describe_config  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Config
@@ -55,10 +56,11 @@ ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
 # cannot reset it. Must match FREE_ANALYSES in frontend/src/billing/products.ts.
 FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 
-EMAIL_BASE_URL = "https://integrations.emergentagent.com"
-EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+# Outbound email (admin notifications only) is handled by mailer.py: SMTP or the
+# Resend API, whichever is configured. Leave it unconfigured to disable email —
+# every endpoint still works, it just reports emailed: false.
+# Recipients (ADMIN_EMAIL) and provider credentials are read by mailer.py.
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "DermaLens AI")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 # Must stay in sync with ACTIVATION_SECRET in frontend/src/device.ts.
 # The fallback guarantees the offline generator keeps producing valid keys even if
 # the env var is not present in the deployed environment.
@@ -575,23 +577,17 @@ async def request_activation(data: ActivationRequestIn, current_user: PublicUser
         "created_at": datetime.now(timezone.utc),
     })
 
-    if EMAIL_KEY and ADMIN_EMAIL:
-        payload = {
-            "to": [ADMIN_EMAIL],
-            "subject": f"Device activation request \u2014 {current_user.full_name}",
-            "html": _activation_email_html(current_user.full_name, current_user.email, device_id),
-            "from_name": EMAIL_FROM_NAME,
-        }
-        try:
-            async with httpx.AsyncClient(timeout=30) as hc:
-                resp = await hc.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
-                                     headers={"X-Email-Key": EMAIL_KEY}, json=payload)
-            resp.raise_for_status()
-        except Exception as e:
-            logger.error(f"Activation email failed: {e}")
-            return {"status": "recorded", "emailed": False}
+    admins = admin_recipients()
+    if not (admins and email_enabled()):
+        # The request is stored either way; the admin can read it from the DB.
+        return {"status": "recorded", "emailed": False}
 
-    return {"status": "sent", "emailed": bool(EMAIL_KEY and ADMIN_EMAIL)}
+    sent = await send_email(
+        admins,
+        f"Device activation request \u2014 {current_user.full_name}",
+        _activation_email_html(current_user.full_name, current_user.email, device_id),
+    )
+    return {"status": "sent" if sent else "recorded", "emailed": sent}
 
 
 class DeviceActivateIn(BaseModel):
@@ -666,20 +662,7 @@ def _email_hash(email: str) -> str:
 
 
 async def _send_admin_email(subject: str, html: str) -> bool:
-    if not (EMAIL_KEY and ADMIN_EMAIL):
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=30) as hc:
-            resp = await hc.post(
-                f"{EMAIL_BASE_URL}/api/v1/email/send",
-                headers={"X-Email-Key": EMAIL_KEY},
-                json={"to": [ADMIN_EMAIL], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME},
-            )
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"Admin email failed: {e}")
-        return False
+    return await send_email(admin_recipients(), subject, html)
 
 
 async def _delete_user_account(user: dict, source: str) -> dict:
@@ -1188,6 +1171,28 @@ async def activation_tool():
 @api_router.get("/")
 async def root():
     return {"message": "DermaLens AI API"}
+
+
+@api_router.get("/health")
+async def health():
+    """Liveness + dependency check for the container healthcheck and reverse proxy.
+    Returns 503 when MongoDB is unreachable so a self-hosted deploy fails loudly."""
+    checks = {
+        "mongo": False,
+        "gemini_key": bool(GEMINI_API_KEY),
+        "email": describe_config(),
+    }
+    try:
+        await client.admin.command("ping")
+        checks["mongo"] = True
+    except Exception as e:
+        logger.error(f"Health check: MongoDB unreachable: {e}")
+        return Response(
+            content=json.dumps({"status": "unhealthy", "checks": checks}),
+            status_code=503,
+            media_type="application/json",
+        )
+    return {"status": "ok", "checks": checks}
 
 
 app.include_router(api_router)
