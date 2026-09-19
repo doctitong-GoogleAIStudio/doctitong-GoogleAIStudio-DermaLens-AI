@@ -61,6 +61,10 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # every endpoint still works, it just reports emailed: false.
 # Recipients (ADMIN_EMAIL) and provider credentials are read by mailer.py.
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "DermaLens AI")
+
+# Comma-separated web origins allowed to call this API from a browser, e.g.
+# "https://app.aivicventures.com". Defaults to "*" (any origin).
+CORS_ALLOW_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",") if o.strip()] or ["*"]
 # Must stay in sync with ACTIVATION_SECRET in frontend/src/device.ts.
 # The fallback guarantees the offline generator keeps producing valid keys even if
 # the env var is not present in the deployed environment.
@@ -1197,10 +1201,14 @@ async def health():
 
 app.include_router(api_router)
 
+# Browsers enforce CORS; the mobile app does not send an Origin header and is
+# unaffected either way. Restrict this to your own web origins once the web build
+# is deployed — "*" is only a safe default because auth uses Bearer tokens in a
+# header rather than cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
+    allow_credentials=CORS_ALLOW_ORIGINS != ["*"],
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

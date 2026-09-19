@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<!-- Standalone copy of GET /api/account-deletion for static hosting (GitHub Pages, Netlify, ...).
-     Before publishing: replace every "https://YOUR-BACKEND-URL" with the public https origin of the
-     DermaLens AI backend, and set the support address in the footer. The backend-served version at
-     /api/account-deletion needs none of this and is the recommended URL for Google Play Console. -->
+<!-- Standalone copy of GET /api/account-deletion, for hosting on aivicventures.com or any
+     static host (GitHub Pages, Netlify, ...). It calls https://api.aivicventures.com — update
+     the API constant below if the backend moves, and set the support address in the footer.
+     The backend already serves this page at /api/account-deletion with no editing required;
+     that URL is the simpler one to give Google Play Console. Use this file only if you would
+     rather the deletion page live on your own website. -->
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Delete your DermaLens AI account</title>
@@ -66,7 +68,7 @@
     </ul>
     <p><strong>Retained information.</strong> We keep a minimal deletion record (a one-way hash of your email address and the
     date of deletion) and de-identified usage counts for security, fraud-prevention, billing-dispute and legal purposes.
-    Full details are in our <a href="https://YOUR-BACKEND-URL/api/privacy-policy">Privacy Policy</a>.</p>
+    Full details are in our <a href="https://api.aivicventures.com/api/privacy-policy">Privacy Policy</a>.</p>
   </div>
 
   <div class="note"><strong>Google Play subscription.</strong> Deleting your account does <u>not</u> cancel a DermaLens AI
@@ -106,12 +108,12 @@
     </details>
   </div>
 
-  <footer>DermaLens AI is developed by aivicventures. Questions: <a href="mailto:the support address on our Google Play listing">the support address on our Google Play listing</a><br/>
-  <a href="https://YOUR-BACKEND-URL/api/privacy-policy">Privacy Policy</a></footer>
+  <footer>DermaLens AI is developed by aivicventures. Questions: <a href="mailto:support@aivicventures.com">support@aivicventures.com</a><br/>
+  <a href="https://api.aivicventures.com/api/privacy-policy">Privacy Policy</a></footer>
 </main>
 <script>
 (function(){
-  var API = "https://YOUR-BACKEND-URL";
+  var API = "https://api.aivicventures.com";
   function show(el, ok, text){ el.className = "msg " + (ok ? "ok" : "err"); el.textContent = text; }
   async function post(path, body){
     var res = await fetch(API + path, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});

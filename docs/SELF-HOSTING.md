@@ -5,6 +5,7 @@ Gemini, email, Google Play verification — runs on infrastructure you control.
 
 - [What changed](#what-changed)
 - [What you need before you start](#what-you-need-before-you-start)
+- [DNS on aivicventures.com](#dns-on-aivicventurescom)
 - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
 - [Option B — A plain VM with systemd](#option-b--a-plain-vm-with-systemd)
 - [Option C — A managed platform](#option-c--a-managed-platform)
@@ -45,13 +46,78 @@ no runtime connection to the platform. Leave it alone.
 ## What you need before you start
 
 - A server with a public IP — 1 vCPU / 2 GB RAM handles this app comfortably.
-- A domain with an A record for the API, e.g. `api.your-domain.com`.
+- A domain with an A record for the API, e.g. `api.aivicventures.com`.
 - A **Gemini API key** from <https://aistudio.google.com/apikey>.
 - Docker + the Compose plugin (Option A), or Python 3.11 and MongoDB 6/7
   (Option B).
 
 Optional: an SMTP account or Resend key for admin notifications, and a Google
 Play service account if you sell subscriptions.
+
+---
+
+## DNS on aivicventures.com
+
+The configs in this repo use **subdomains**, so whatever already serves
+`aivicventures.com` — a marketing site, WordPress, Squarespace, anything — keeps
+running untouched. Nothing here changes your apex record.
+
+Add these at your DNS provider, pointing at the server that runs the backend:
+
+| Type | Name | Value | Purpose |
+|---|---|---|---|
+| `A` | `api` | your server's IPv4 | The API. Required. |
+| `AAAA` | `api` | your server's IPv6 | Only if the server has one. |
+| `A` | `app` | your server's IPv4 | The web build. Only with `--profile web`. |
+
+Result:
+
+- `https://api.aivicventures.com` — the backend, the privacy policy and the
+  account-deletion page
+- `https://app.aivicventures.com` — the browser version of the app (optional)
+- `https://aivicventures.com` — your existing site, unchanged
+
+Wait for propagation before starting Caddy. It requests certificates on first
+boot, and Let's Encrypt rate-limits repeated failures for an hour:
+
+```bash
+dig +short api.aivicventures.com     # must return your server's IP
+```
+
+If you only want the API and not the web build, leave `WEB_DOMAIN` empty in
+`.env` and skip the `app` record.
+
+### Your existing site is on shared hosting
+
+Squarespace, Wix, WordPress.com and most shared hosts cannot run Docker or a
+Python process. That is fine — the website and the backend do not need to live
+on the same machine. Keep the site where it is, rent a small VPS for the API,
+and point only the `api` subdomain at the VPS.
+
+### Linking the app from your website
+
+Two URLs are worth adding to aivicventures.com, since Google Play requires both
+to be publicly reachable:
+
+- Privacy policy — `https://api.aivicventures.com/api/privacy-policy`
+- Delete your account — `https://api.aivicventures.com/api/account-deletion`
+
+The backend serves both, so a plain link is enough. If you would rather the
+deletion page sit on your own site, `docs/account-deletion.html` is a standalone
+copy already pointed at `api.aivicventures.com` — drop it in as
+`aivicventures.com/delete-account` and give Play that URL instead.
+
+### Locking down CORS
+
+Once the web build is live, restrict which browser origins may call the API
+(`backend/.env`):
+
+```bash
+CORS_ALLOW_ORIGINS=https://app.aivicventures.com,https://aivicventures.com
+```
+
+The default is `*`. The mobile app sends no `Origin` header and is unaffected
+either way — this only constrains browsers.
 
 ---
 
@@ -73,14 +139,14 @@ Fill in the two files. At minimum:
 ```bash
 # .env
 MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)
-API_DOMAIN=api.your-domain.com
-TLS_EMAIL=you@your-domain.com
+API_DOMAIN=api.aivicventures.com
+TLS_EMAIL=admin@aivicventures.com
 
 # backend/.env
 JWT_SECRET=$(openssl rand -hex 32)
 GEMINI_API_KEY=...
 DB_NAME=dermalens
-PUBLIC_BASE_URL=https://api.your-domain.com
+PUBLIC_BASE_URL=https://api.aivicventures.com
 ```
 
 > `MONGO_ROOT_PASSWORD` is applied when the database volume is first created.
@@ -102,7 +168,7 @@ mapping in `docker-compose.yml` or nothing will reach it from outside.
 Check it:
 
 ```bash
-curl -s https://api.your-domain.com/api/health | jq
+curl -s https://api.aivicventures.com/api/health | jq
 docker compose logs -f backend
 ```
 
@@ -144,7 +210,7 @@ sudo systemctl status dermalens-backend
 
 sudo cp deploy/nginx-api.conf /etc/nginx/sites-available/dermalens
 sudo ln -s /etc/nginx/sites-available/dermalens /etc/nginx/sites-enabled/
-sudo certbot --nginx -d api.your-domain.com
+sudo certbot --nginx -d api.aivicventures.com
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -179,7 +245,7 @@ runtime. A new backend URL means a new build.
 ```bash
 cd frontend
 cp .env.example .env
-# EXPO_PUBLIC_BACKEND_URL=https://api.your-domain.com
+# EXPO_PUBLIC_BACKEND_URL=https://api.aivicventures.com
 ```
 
 Development:
@@ -192,7 +258,7 @@ npx expo start
 Web export (what `frontend/Dockerfile` does):
 
 ```bash
-EXPO_PUBLIC_BACKEND_URL=https://api.your-domain.com npx expo export --platform web --output-dir dist
+EXPO_PUBLIC_BACKEND_URL=https://api.aivicventures.com npx expo export --platform web --output-dir dist
 ```
 
 Android release build with EAS — Emergent's build service is not involved:
@@ -262,8 +328,8 @@ account-deletion notices. Configure one provider in `backend/.env`.
 
 ```bash
 EMAIL_PROVIDER=smtp
-EMAIL_FROM=noreply@your-domain.com
-ADMIN_EMAIL=you@your-domain.com
+EMAIL_FROM=noreply@aivicventures.com
+ADMIN_EMAIL=admin@aivicventures.com
 SMTP_HOST=smtp.your-provider.com
 SMTP_PORT=587
 SMTP_USER=...
@@ -276,8 +342,8 @@ blocked, which is common on cloud VMs):
 
 ```bash
 EMAIL_PROVIDER=resend
-EMAIL_FROM=noreply@your-domain.com
-ADMIN_EMAIL=you@your-domain.com
+EMAIL_FROM=noreply@aivicventures.com
+ADMIN_EMAIL=admin@aivicventures.com
 RESEND_API_KEY=re_...
 ```
 
@@ -325,7 +391,7 @@ docker compose exec -T mongo mongorestore --username dermalens \
 ## Verifying the deployment
 
 ```bash
-curl -s https://api.your-domain.com/api/health | jq
+curl -s https://api.aivicventures.com/api/health | jq
 ```
 
 ```json
@@ -334,7 +400,7 @@ curl -s https://api.your-domain.com/api/health | jq
   "checks": {
     "mongo": true,
     "gemini_key": true,
-    "email": { "provider": "smtp", "enabled": true, "from": "noreply@your-domain.com" }
+    "email": { "provider": "smtp", "enabled": true, "from": "noreply@aivicventures.com" }
   }
 }
 ```
@@ -345,7 +411,7 @@ health checks fail loudly instead of serving a broken API.
 Then exercise the real paths:
 
 ```bash
-BASE=https://api.your-domain.com
+BASE=https://api.aivicventures.com
 
 curl -s -X POST $BASE/api/auth/signup \
   -H 'Content-Type: application/json' \
@@ -362,7 +428,7 @@ The API integration suite runs against a live server:
 
 ```bash
 pip install -r backend/requirements-dev.txt
-EXPO_PUBLIC_BACKEND_URL=https://api.your-domain.com pytest backend/tests
+EXPO_PUBLIC_BACKEND_URL=https://api.aivicventures.com pytest backend/tests
 ```
 
 It creates real accounts and consumes real Gemini quota — point it at a staging
@@ -394,6 +460,7 @@ Full annotated list: [`backend/.env.example`](../backend/.env.example).
 | `FREE_ANALYSES` | `1` | Must match `FREE_ANALYSES` in `frontend/src/billing/products.ts`. |
 | `JWT_EXPIRE_MINUTES` | `43200` | 30 days. |
 | `WEB_CONCURRENCY` | `2` | Uvicorn workers. |
+| `CORS_ALLOW_ORIGINS` | `*` | Comma-separated browser origins allowed to call the API. |
 
 ### Email, Play, activation
 
