@@ -1,0 +1,13 @@
+# Nightly MongoDB backup for DermaLens AI.
+#
+#   sudo cp deploy/dermalens-backup.cron /etc/cron.d/dermalens-backup
+#   sudo chmod 0644 /etc/cron.d/dermalens-backup
+#
+# Adjust the user and path below if the deployment does not live in
+# /home/dermalens. Output goes to the log; cron also mails it if mail is set up.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 03:17 UTC daily. An odd minute avoids the pile-up every other cron job causes
+# on the hour.
+17 3 * * * dermalens /home/dermalens/doctitong-GoogleAIStudio-DermaLens-AI/deploy/backup-mongo.sh >> /home/dermalens/backups/backup.log 2>&1
