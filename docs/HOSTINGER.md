@@ -93,13 +93,23 @@ Only the `api` subdomain's DNS record points at the VPS.
 
 ## Walkthrough — Hostinger VPS
 
-### 1. Order the VPS
+### 1. The VPS
 
-In hPanel, order a **VPS** plan. When it asks for an OS template, pick
-**Ubuntu 24.04** — or, if offered, the **Ubuntu with Docker** template, which
-saves you step 3.
+A **KVM 2** plan is what this guide assumes. Any current Hostinger VPS tier is
+more than this app needs: the backend idles at a few hundred MB, and MongoDB's
+working set here is small because photos and scan results never reach the
+server. You should not need to resize.
 
-The smallest VPS tier is enough for this app. You can resize later.
+Confirm what you actually got once you are on the box:
+
+```bash
+nproc && free -h && df -h /
+```
+
+In hPanel, set the OS template to **Ubuntu 24.04** — or the **Ubuntu with
+Docker** template if offered, which saves you most of step 3. If the VPS was
+already provisioned with a different OS, reinstalling it from hPanel is quick
+and nothing is lost at this stage.
 
 ### 2. Point DNS at it
 
@@ -188,11 +198,18 @@ WEB_DOMAIN=                      # leave empty unless serving the web app here
 Edit `backend/.env`:
 
 ```bash
+WEB_CONCURRENCY=2                # see the note below if `nproc` shows >2 cores
 JWT_SECRET=<openssl rand -hex 32>
 GEMINI_API_KEY=<from https://aistudio.google.com/apikey>
 DB_NAME=dermalens
 PUBLIC_BASE_URL=https://api.aivicventures.com
 ```
+
+`WEB_CONCURRENCY` is the number of uvicorn worker processes. Set it to the
+core count `nproc` reported in step 1 — 2 is a safe starting point. There is
+little to gain from going higher: the slow paths are already non-blocking
+(Gemini analysis is awaited, PDF rendering runs on a thread pool), so each
+worker handles many concurrent requests on its own.
 
 > If you are moving from the Emergent-hosted database, copy the **existing**
 > `JWT_SECRET` and `ACTIVATION_SECRET` instead of generating new ones, or you
@@ -296,8 +313,9 @@ backups, and it survives you rebuilding the VPS. To use it, comment out the
 `MONGO_URL` override in `docker-compose.yml`'s `backend` service, set the
 `mongodb+srv://` URI in `backend/.env`, and allow-list the VPS IP in Atlas.
 
-If your VPS is the smallest tier and you would rather not run a database on it,
-Atlas is the easier choice.
+On KVM 2 there is no resource reason to pick Atlas — running MongoDB in Docker
+on the box is fine and keeps everything in one place. Choose Atlas only if you
+want someone else handling backups and point-in-time restore.
 
 ---
 
@@ -327,7 +345,7 @@ hPanel, since this changes:
 
 | Item | Notes |
 |---|---|
-| Hostinger VPS, smallest tier | A few dollars a month. Replaces the Emergent hosting cost. |
+| Hostinger VPS (KVM 2) | Already paid, annually. Replaces the Emergent hosting cost. |
 | Your existing web hosting | Unchanged — keep it for aivicventures.com. |
 | TLS certificates | Free. Caddy gets them from Let's Encrypt automatically. |
 | MongoDB | Free on the VPS, or Atlas free tier. |

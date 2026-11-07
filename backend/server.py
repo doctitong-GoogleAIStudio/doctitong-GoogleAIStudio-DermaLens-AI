@@ -637,9 +637,15 @@ class ReportIn(BaseModel):
 async def report_pdf(data: ReportIn, current_user: PublicUser = Depends(get_current_user)):
     """Render the analysis report HTML into a real PDF file."""
     from xhtml2pdf import pisa
+    from starlette.concurrency import run_in_threadpool
 
     buf = io.BytesIO()
-    result = pisa.CreatePDF(io.StringIO(data.html), dest=buf)
+    # pisa.CreatePDF is synchronous and CPU-bound: a report with the four photos
+    # the app allows takes ~1s. Called directly from this async endpoint it would
+    # block the worker's event loop for that long, stalling every other request
+    # on the worker — including /api/health, which the proxy and the container
+    # healthcheck poll. Render it on a thread instead.
+    result = await run_in_threadpool(pisa.CreatePDF, io.StringIO(data.html), dest=buf)
     if result.err:
         raise HTTPException(status_code=500, detail="Could not render the PDF report.")
 
