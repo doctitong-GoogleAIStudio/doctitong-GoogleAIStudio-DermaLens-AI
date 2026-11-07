@@ -106,10 +106,31 @@ Confirm what you actually got once you are on the box:
 nproc && free -h && df -h /
 ```
 
-In hPanel, set the OS template to **Ubuntu 24.04** — or the **Ubuntu with
-Docker** template if offered, which saves you most of step 3. If the VPS was
-already provisioned with a different OS, reinstalling it from hPanel is quick
-and nothing is lost at this stage.
+#### Choosing the OS template
+
+hPanel's **VPS → Operating System** page splits templates across tabs. Which
+tab you pick matters more than which Ubuntu version:
+
+| Tab | Pick? | Why |
+|---|---|---|
+| **Application** → *Ubuntu 24.04 with Docker* | **Best** | Docker and the Compose plugin are already installed, so step 3 is mostly done. |
+| **Operating System** → *Ubuntu 24.04* | **Fine** | Plain Ubuntu. `deploy/hostinger-vps-setup.sh` installs Docker for you. |
+| **Panel** → CyberPanel, cPanel, Plesk, Webmin | **No** | These install a hosting control panel that binds ports 80 and 443 and runs its own web server. It will fight Caddy for those ports and for TLS certificates. |
+
+The Panel row is the one to avoid. It looks like the familiar shared-hosting
+experience, which is exactly why it is tempting — but this stack brings its own
+web server and certificate handling, and a control panel on the same box means
+two things competing for the same ports.
+
+Either of the first two options is fine. If you are unsure, take plain
+**Ubuntu 24.04**: the setup script handles the rest, and it keeps the box free
+of software you did not choose.
+
+> **Reinstalling wipes the VPS.** Everything on the disk is destroyed and you
+> get a fresh root password; your SSH client will also warn that the host key
+> changed, which is expected. On a VPS you have not deployed to yet there is
+> nothing to lose — but do not do this once the app is live without a backup.
+> See [Backups](#backups).
 
 ### 2. Point DNS at it
 
