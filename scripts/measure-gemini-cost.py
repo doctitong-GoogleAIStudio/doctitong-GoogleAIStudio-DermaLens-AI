@@ -25,32 +25,70 @@ Usage:
 This makes real, billed API calls. It is a handful of small requests — cents at
 most — but it is not free. Pass --dry-run to see the plan without calling.
 
-Requires: pillow, httpx (both already in backend/requirements.txt).
+Windows (PowerShell):
+    py -m pip install pillow httpx
+    $env:GEMINI_API_KEY = "your-key-here"
+    py scripts\\measure-gemini-cost.py --images 4
+
+Requires only pillow and httpx. It reads the prompt constants straight out of
+backend/server.py without importing it, so you do not need FastAPI, MongoDB or
+anything else from the backend installed to run this.
 """
 
 import argparse
+import ast
 import base64
 import io
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parents[1]
 BACKEND = REPO / "backend"
-sys.path.insert(0, str(BACKEND))
-
-# server.py reads these at import time. Dummy values are fine — nothing
-# connects to Mongo here, we only borrow the prompt constants.
-os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
-os.environ.setdefault("DB_NAME", "measure")
-os.environ.setdefault("JWT_SECRET", "measure")
+SERVER_PY = BACKEND / "server.py"
 
 try:
     import httpx
     from PIL import Image
 except ImportError as e:
-    sys.exit(f"Missing dependency: {e}. Install with:\n"
-             f"  pip install -r {BACKEND / 'requirements.txt'}")
+    sys.exit(f"Missing dependency: {e}\n\nInstall the two this script needs:\n"
+             f"  python3 -m pip install pillow httpx       (Windows: py -m pip install pillow httpx)")
+
+
+def load_prompt_pieces():
+    """Read the real prompt constants out of server.py WITHOUT importing it.
+
+    Importing server.py would drag in FastAPI, Motor, pydantic and friends just
+    to read three values. Parsing is enough: all three are plain literals, and
+    _build_analysis_prompt only touches HISTORY_LABELS and the object passed in.
+    """
+    if not SERVER_PY.is_file():
+        sys.exit(f"Cannot find {SERVER_PY}. Run this from a clone of the repo.")
+    tree = ast.parse(SERVER_PY.read_text(encoding="utf-8"))
+
+    consts, fn_src = {}, None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id in (
+                        "ANALYSIS_SYSTEM", "GEMINI_RESPONSE_SCHEMA", "HISTORY_LABELS"):
+                    try:
+                        consts[t.id] = ast.literal_eval(node.value)
+                    except ValueError:
+                        pass
+        elif isinstance(node, ast.FunctionDef) and node.name == "_build_analysis_prompt":
+            fn_src = ast.get_source_segment(SERVER_PY.read_text(encoding="utf-8"), node)
+
+    missing = {"ANALYSIS_SYSTEM", "GEMINI_RESPONSE_SCHEMA", "HISTORY_LABELS"} - consts.keys()
+    if missing or not fn_src:
+        sys.exit(f"server.py changed shape; could not read: "
+                 f"{', '.join(sorted(missing)) or '_build_analysis_prompt'}")
+
+    ns = {"HISTORY_LABELS": consts["HISTORY_LABELS"], "List": list}
+    exec(fn_src, ns)  # noqa: S102 — our own repo's source, parsed above
+    return (consts["ANALYSIS_SYSTEM"], consts["GEMINI_RESPONSE_SCHEMA"],
+            ns["_build_analysis_prompt"], consts["HISTORY_LABELS"])
 
 
 def load_env_file() -> None:
@@ -136,18 +174,23 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="show the plan, call nothing")
     args = ap.parse_args()
 
-    import server  # noqa: E402  — needs the env defaults set above
-    from server import AnalyzeIn, AnalyzeImageIn, ClinicalHistoryIn
+    system, schema, build_prompt, history_labels = load_prompt_pieces()
 
-    system = server.ANALYSIS_SYSTEM
-    schema = server.GEMINI_RESPONSE_SCHEMA
-    sample = AnalyzeIn(
-        images=[AnalyzeImageIn(data=base64.b64encode(b"\xff\xd8\xff\xe0" + b"0" * 64).decode(),
-                               mimeType="image/jpeg")],
-        history=ClinicalHistoryIn(location="left forearm", duration="3 months",
-                                  symptoms="mild itching", changes="slowly enlarging"),
-    )
-    prompt = server._build_analysis_prompt(sample)
+    # Duck-typed stand-in for AnalyzeIn. Every HISTORY_LABELS field is filled so
+    # the prompt is the longest the app can realistically produce — the
+    # worst-case (most expensive) text, and it cannot break if a field is added.
+    realistic = {
+        "location": "left forearm, extensor surface",
+        "duration": "approximately 3 months",
+        "symptoms": "mild intermittent itching, no pain or bleeding",
+        "changes": "slowly enlarging, border has become less regular",
+        "evolution": "started as a small flat brown macule",
+        "medications": "none relevant",
+        "other": "no family history of melanoma; works outdoors",
+    }
+    history = SimpleNamespace(**{k: realistic.get(k, "not specified") for k in history_labels})
+    sample = SimpleNamespace(images=[None] * args.images, viewLabels=None, history=history)
+    prompt = build_prompt(sample)
 
     sizes = [None if s.strip().lower() in ("none", "full", "0") else int(s)
              for s in args.sizes.split(",") if s.strip()]
