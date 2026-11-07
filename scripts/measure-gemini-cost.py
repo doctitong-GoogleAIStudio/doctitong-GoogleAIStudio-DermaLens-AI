@@ -20,6 +20,18 @@ the user's mobile data (3,301 KB vs 214 KB per photo), which is a real UX
 win, just not a cost one. Output was 163-315 tokens, varying with the
 answer rather than the image.
 
+Measured the same way on gemini-3.8-flash: input was also 4,880 tokens, but
+output ran 411-643 against the Pro model's 163-315. Flash is not fewer
+tokens; it is cheaper per token, so compare with --in-price/--out-price
+rather than by token count alone.
+
+Note that --list-models lists models this key CANNOT call: gemini-2.5-pro
+and gemini-2.5-flash both appear there and both return 404, "no longer
+available to new users". Google's own 404 for gemini-2.5-pro points at
+gemini-3.1-pro-preview, so despite the name that preview is the current Pro
+endpoint for new keys, not a soon-to-vanish experiment. Always test a
+candidate model with a real call before switching GEMINI_MODEL.
+
 Re-run this when changing model: the result above is model-specific and
 should not be assumed to hold for another one.
 
