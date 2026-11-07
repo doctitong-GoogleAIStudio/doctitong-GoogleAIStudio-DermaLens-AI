@@ -17,7 +17,9 @@ import requests
 from pymongo import MongoClient
 
 BASE_URL = os.environ["EXPO_PUBLIC_BACKEND_URL"].rstrip("/")
-ACTIVATION_SECRET = b"DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns"
+ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET", "").encode()
+if not ACTIVATION_SECRET:
+    pytest.skip("ACTIVATION_SECRET is not set", allow_module_level=True)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "test_database")

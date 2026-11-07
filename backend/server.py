@@ -65,10 +65,13 @@ EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "DermaLens AI")
 # Comma-separated web origins allowed to call this API from a browser, e.g.
 # "https://app.aivicventures.com". Defaults to "*" (any origin).
 CORS_ALLOW_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",") if o.strip()] or ["*"]
-# Must stay in sync with ACTIVATION_SECRET in frontend/src/device.ts.
-# The fallback guarantees the offline generator keeps producing valid keys even if
-# the env var is not present in the deployed environment.
-ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET") or "DERM-ACT-2026-x7Qp9Lm3Vt8Bz1Ns"
+# HMAC secret behind the offline device-activation keys. There is deliberately no
+# default: this repository is public, so a hardcoded fallback would let anyone
+# compute valid keys for any Device ID and skip paying. Unset, the activation
+# endpoints return 503 rather than trusting a guessable secret.
+# Generate with `openssl rand -hex 32` and keep it identical across the backend,
+# the shipped app and the offline key generator.
+ACTIVATION_SECRET = os.environ.get("ACTIVATION_SECRET", "").strip()
 
 # Public pages (privacy policy / account deletion) and Google Play server-side verification.
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "")
@@ -210,7 +213,17 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> PublicUser:
     return public_user(doc)
 
 
+def require_activation_secret() -> None:
+    """Activation is unavailable until an ACTIVATION_SECRET is configured."""
+    if not ACTIVATION_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Device activation is not configured on this server.",
+        )
+
+
 def make_activation_key(device_id: str) -> str:
+    require_activation_secret()
     norm = device_id.strip().upper()
     digest = hmac.new(ACTIVATION_SECRET.encode(), norm.encode(), hashlib.sha256).hexdigest()
     s = digest[:16].upper()
@@ -233,6 +246,9 @@ async def analyze_principal(
         return Principal(kind="user", id=user.id)
 
     if x_activation_key:
+        # Checked before the scan so the answer is the same whether or not any
+        # device happens to be activated yet.
+        require_activation_secret()
         supplied = x_activation_key.strip().upper().replace(" ", "")
         async for doc in db.activated_devices.find({}, {"device_id": 1}):
             device_id = doc.get("device_id") or ""
@@ -1173,6 +1189,7 @@ async def activation_tool():
             break
         except Exception:
             continue
+    require_activation_secret()
     html = ACTIVATION_TOOL_HTML.replace("/*__SHA256__*/", sha_src).replace("__SECRET__", ACTIVATION_SECRET)
     return HTMLResponse(content=html)
 

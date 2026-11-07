@@ -95,16 +95,26 @@ Only the `api` subdomain's DNS record points at the VPS.
 
 ### 1. The VPS
 
-A **KVM 2** plan is what this guide assumes. Any current Hostinger VPS tier is
-more than this app needs: the backend idles at a few hundred MB, and MongoDB's
-working set here is small because photos and scan results never reach the
-server. You should not need to resize.
+This guide assumes **KVM 2**: 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB bandwidth.
+That is comfortably more than this app needs — the backend idles at a few
+hundred MB and MongoDB's working set stays small, because photos and scan
+results never reach the server. You will not need to resize, and there is no
+reason to offload the database.
 
-Confirm what you actually got once you are on the box:
+Rough budget on this box: backend ~300-500 MB, MongoDB ~1 GB with headroom to
+grow, Caddy negligible. That leaves most of the 8 GB unused, which is the point
+— nothing here should ever approach the limit.
+
+Confirm on the box if you are unsure what you have:
 
 ```bash
 nproc && free -h && df -h /
 ```
+
+**Region.** Pick the datacentre nearest your users; Singapore or Kuala Lumpur
+are the closest to the Philippines. Changing region later means rebuilding the
+VPS, so get this right before you deploy. It affects app latency only — the
+Gemini call goes out to Google from the server either way.
 
 #### Choosing the OS template
 
@@ -226,16 +236,25 @@ DB_NAME=dermalens
 PUBLIC_BASE_URL=https://api.aivicventures.com
 ```
 
-`WEB_CONCURRENCY` is the number of uvicorn worker processes. Set it to the
-core count `nproc` reported in step 1 — 2 is a safe starting point. There is
-little to gain from going higher: the slow paths are already non-blocking
-(Gemini analysis is awaited, PDF rendering runs on a thread pool), so each
-worker handles many concurrent requests on its own.
+`WEB_CONCURRENCY` is the number of uvicorn worker processes, and 2 matches
+KVM 2's 2 vCPUs. Do not raise it: the slow paths are already non-blocking —
+Gemini analysis is awaited, and PDF rendering runs on a thread pool — so each
+worker serves many concurrent requests by itself. More workers than cores would
+just add memory and context switching.
 
-> If you are moving from the Emergent-hosted database, copy the **existing**
-> `JWT_SECRET` and `ACTIVATION_SECRET` instead of generating new ones, or you
-> will sign out every user and invalidate every activation key already issued.
-> See [SELF-HOSTING.md](SELF-HOSTING.md#migrating-data-off-emergent).
+**Fresh install, no existing accounts?** Generate new secrets and skip the
+migration entirely — nothing carries over and there is nothing to break. This
+is also the moment to set a brand-new `ACTIVATION_SECRET` (`openssl rand -hex
+32`): the value that used to be hardcoded in this repository is in public git
+history, so anyone could mint activation keys with it. Leave
+`ACTIVATION_SECRET` empty if you do not use device activation at all — those
+endpoints then return 503 and everything else works normally.
+
+> **Migrating an existing database?** Then do the opposite: copy the
+> **existing** `JWT_SECRET` and `ACTIVATION_SECRET` rather than generating new
+> ones, or you will sign out every user and invalidate every activation key
+> already issued. See
+> [SELF-HOSTING.md](SELF-HOSTING.md#migrating-data-off-emergent).
 
 Start it:
 
