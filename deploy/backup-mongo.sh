@@ -32,9 +32,11 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DEST_DIR="${DEST_DIR:-$HOME/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
-# A real dump of an empty-ish database is still a few KB; anything smaller
-# means mongodump failed and wrote an error or nothing at all.
-MIN_BYTES="${MIN_BYTES:-1024}"
+# Floor for a plausible archive. A dump of a database with collections but no
+# documents is legitimately only a few hundred bytes, so this is deliberately
+# low — it exists to catch an empty or truncated file, not to judge content.
+# Integrity is checked properly by gzip -t below.
+MIN_BYTES="${MIN_BYTES:-256}"
 
 log() { printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1"; }
 die() { printf '%s ERROR: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >&2; exit 1; }
@@ -73,6 +75,13 @@ SIZE="$(stat -c %s "$TMP" 2>/dev/null || echo 0)"
 if [ "$SIZE" -lt "$MIN_BYTES" ]; then
 	rm -f "$TMP"
 	die "dump was only ${SIZE} bytes (< ${MIN_BYTES}); treating as failed"
+fi
+
+# mongodump --gzip writes a gzip stream, so this catches a truncated or
+# corrupted archive — a far better check than guessing at a size.
+if ! gzip -t "$TMP" 2>/dev/null; then
+	rm -f "$TMP"
+	die "archive failed its gzip integrity check; treating as failed"
 fi
 
 # Only now is the backup considered good — rename is atomic, so a half-written
