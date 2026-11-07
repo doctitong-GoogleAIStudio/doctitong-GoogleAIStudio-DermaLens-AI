@@ -297,6 +297,76 @@ docker compose --profile proxy up -d --build
 
 ---
 
+## Sharing a reverse proxy with another app on the same VPS
+
+Only one process can hold ports 80 and 443. If the VPS already runs another
+application behind Caddy, do **not** start this stack's Caddy — the second one
+fails with `port is already allocated`. Put both sites behind the existing
+proxy instead; one reverse proxy serving several apps is the normal
+arrangement.
+
+Start DermaLens *without* the proxy profile, so only Mongo and the backend run:
+
+```bash
+docker compose up -d          # NOT --profile proxy
+```
+
+The backend then listens on `127.0.0.1:8000` and on its own Docker network.
+
+Give the existing Caddy a route to it. Back up its config first:
+
+```bash
+cp /path/to/their/Caddyfile /path/to/their/Caddyfile.bak-$(date +%Y%m%d-%H%M)
+docker network connect doctitong-googleaistudio-dermalens-ai_default <their-caddy-container>
+```
+
+`docker network connect` is additive — the container keeps the networks it is
+already on, and the other app is unaffected.
+
+Then append a site block to their Caddyfile:
+
+```
+api.aivicventures.com {
+	encode zstd gzip
+	request_body {
+		max_size 64MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy doctitong-googleaistudio-dermalens-ai-backend-1:8000 {
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+}
+```
+
+`64MB` because four 8MB photos reach ~43MB once base64-encoded; `120s` because
+a Gemini analysis can run to `GEMINI_TIMEOUT_SECONDS` (90s).
+
+Validate before applying, then reload — a reload is graceful, so the other app
+keeps serving, and an invalid config is refused rather than applied:
+
+```bash
+docker exec <their-caddy> caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec <their-caddy> caddy reload   --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+To undo: restore the `.bak` file, reload again, and
+`docker network disconnect doctitong-googleaistudio-dermalens-ai_default <their-caddy>`.
+
+**This arrangement lives outside this repository.** The other app's Caddyfile
+is not version-controlled here, so if you rebuild the VPS you must redo these
+steps — or switch back to this stack's own Caddy with `--profile proxy` once
+nothing else holds 80/443.
+
+---
+
 ## Serving the web app from your existing Hostinger site
 
 The web build is plain static files, so Hostinger **web** hosting can serve it —
