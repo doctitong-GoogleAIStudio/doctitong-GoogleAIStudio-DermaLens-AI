@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-time preparation of a fresh Hostinger VPS (Ubuntu 22.04/24.04) to run
+# One-time preparation of a fresh Hostinger VPS (Ubuntu 22.04 or newer) to run
 # DermaLens AI. Installs Docker, creates a non-root user, and closes every port
 # except SSH and HTTP(S).
 #
@@ -65,9 +65,16 @@ if command -v docker >/dev/null 2>&1; then
 else
 	log "Installing Docker"
 	# Hostinger's "Ubuntu with Docker" template ships it already; this covers
-	# the plain Ubuntu template.
-	curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-	sh /tmp/get-docker.sh
+	# the plain template. get.docker.com is preferred (newest Docker), but it
+	# fails on an Ubuntu release Docker's repo does not carry yet, so fall back
+	# to the packages in Ubuntu's own archive, which always match the release.
+	if curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh; then
+		log "Installed from get.docker.com"
+	else
+		warn "get.docker.com failed (common on a brand-new Ubuntu release)."
+		warn "Falling back to Ubuntu's own docker.io packages."
+		apt-get install -y -qq docker.io docker-compose-v2
+	fi
 	rm -f /tmp/get-docker.sh
 fi
 
@@ -75,10 +82,25 @@ if docker compose version >/dev/null 2>&1; then
 	log "Compose plugin present ($(docker compose version --short))"
 else
 	log "Installing the Compose plugin"
-	apt-get install -y -qq docker-compose-plugin
+	# docker-compose-plugin comes from Docker's repo, docker-compose-v2 from
+	# Ubuntu's. Try each; only one will exist depending on the path above.
+	apt-get install -y -qq docker-compose-plugin \
+		|| apt-get install -y -qq docker-compose-v2 \
+		|| warn "Could not install a Compose plugin automatically."
 fi
 
 systemctl enable --now docker
+
+# Fail loudly here rather than three steps later at `docker compose up`.
+if ! docker --version >/dev/null 2>&1; then
+	warn "Docker is still not working. Stopping."
+	exit 1
+fi
+if ! docker compose version >/dev/null 2>&1; then
+	warn "Docker works but 'docker compose' does not. Stopping."
+	warn "Try: apt-get install -y docker-compose-v2"
+	exit 1
+fi
 
 # ---------------------------------------------------------------------------
 if id "$APP_USER" >/dev/null 2>&1; then
