@@ -9,6 +9,7 @@ Gemini, email, Google Play verification — runs on infrastructure you control.
 - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
 - [Option B — A plain VM with systemd](#option-b--a-plain-vm-with-systemd)
 - [Option C — A managed platform](#option-c--a-managed-platform)
+- [Hostinger](HOSTINGER.md) — VPS walkthrough (separate page)
 - [Pointing the mobile app at your backend](#pointing-the-mobile-app-at-your-backend)
 - [Migrating data off Emergent](#migrating-data-off-emergent)
 - [Email](#email)
@@ -234,6 +235,11 @@ Run and friends all work. Two things to get right:
    egress IPs in Atlas.
 
 Set `/api/health` as the health check path.
+
+**Hostinger** is a common case with a catch: its shared/Premium/Business web
+hosting is PHP + MySQL with no root access, so it cannot run this backend at
+all. Its **VPS** plans can, and the Compose stack above works there unchanged.
+Full walkthrough: [HOSTINGER.md](HOSTINGER.md).
 
 ---
 

@@ -1,0 +1,335 @@
+# Hosting DermaLens AI on Hostinger
+
+Short answer to the two questions:
+
+**No — there is no Laravel anywhere in this project.** The backend is Python
+(FastAPI) with MongoDB. There is not a single `.php` file in the repository.
+
+**Yes — Hostinger can host it, but only on a VPS plan,** not on shared/Premium/
+Business web hosting. Details and the full walkthrough below.
+
+- [Why shared hosting cannot run this backend](#why-shared-hosting-cannot-run-this-backend)
+- [Should you rewrite it in Laravel?](#should-you-rewrite-it-in-laravel)
+- [What goes where](#what-goes-where)
+- [Walkthrough — Hostinger VPS](#walkthrough--hostinger-vps)
+- [Serving the web app from your existing Hostinger site](#serving-the-web-app-from-your-existing-hostinger-site)
+- [Database choice](#database-choice)
+- [Backups](#backups)
+- [Costs](#costs)
+
+> Hostinger renames plans and changes specs regularly, and this guide avoids
+> quoting prices or plan tiers for that reason. What matters is the capability:
+> you need **root SSH access**, which means a **VPS**, not web hosting.
+
+---
+
+## Why shared hosting cannot run this backend
+
+Hostinger's web hosting plans (Premium, Business, Cloud) run PHP behind
+Apache/LiteSpeed with MySQL, managed through hPanel. They give you no root
+access. This backend needs four things none of those plans provide:
+
+| What the app needs | Shared hosting |
+|---|---|
+| A long-lived Python ASGI process (`uvicorn`) listening on a port | No. PHP is invoked per request; you cannot keep a daemon running. |
+| **MongoDB** | No. Only MySQL is offered, and you cannot install a database server. |
+| Requests that run up to **90 seconds** (Gemini image analysis — `GEMINI_TIMEOUT_SECONDS` in `server.py`) | Usually capped well below that by `max_execution_time`. |
+| Request bodies up to **32 MB** (up to 4 base64-encoded photos per analysis) | Typically capped far lower by `upload_max_filesize`. |
+
+The last two are worth noting because they are not Python problems — they are
+*shared hosting* problems. They would bite a PHP rewrite too. See below.
+
+**Hostinger VPS** plans are a different product: a full Ubuntu machine with root
+SSH. Docker runs, MongoDB runs, `uvicorn` runs. Everything already in this repo
+(`docker-compose.yml`, `deploy/`) works there unchanged.
+
+---
+
+## Should you rewrite it in Laravel?
+
+My recommendation: **no.** Three reasons, in order of how much they'd cost you.
+
+**1. It would not actually solve the hosting problem.** The reason to rewrite
+would be to fit on cheap shared hosting. But the two hard limits above —
+90-second requests and 32 MB uploads — are enforced by the hosting plan, not by
+the language. A Laravel version of `/api/analyze` would still need to hold a
+request open while Gemini analyses up to four photos. You would do the whole
+rewrite and still need a VPS.
+
+**2. Your app is already published and has users.** `versionCode 124` is live on
+Google Play. Installed copies talk to a fixed API contract — 23 endpoints, JWT
+format, the HMAC activation scheme, the exact JSON shapes the app parses. A
+rewrite has to reproduce all of it bug-for-bug, and anything you get subtly
+wrong breaks apps already on people's phones, which you cannot roll back.
+
+**3. The volume is larger than it looks.** ~1,600 lines of backend, and the
+non-trivial parts are the parts hardest to port: Gemini vision prompting and
+strict-JSON parsing, PDF report generation, Google Play purchase verification,
+HMAC device activation that must stay byte-compatible with the shipped app and
+the offline key generator, per-account rate limiting, and the GDPR account
+deletion / de-identification flow. Plus the backend tests, which all assume the
+current API.
+
+A VPS costs a few dollars a month. A rewrite costs weeks and risks your live
+users. If you want Laravel for other reasons — your own familiarity, other
+projects on the same stack — that is a legitimate choice, but do it as a
+deliberate migration later, not as a way to avoid renting a VPS.
+
+---
+
+## What goes where
+
+You do not have to move your website. Split it:
+
+| Piece | Where | Why |
+|---|---|---|
+| `aivicventures.com` — your existing site | **Stays on Hostinger web hosting**, untouched | It is already working. Nothing in this repo touches your apex domain. |
+| `api.aivicventures.com` — the backend + MongoDB | **Hostinger VPS** | Needs root, Docker, a long-lived process. |
+| `app.aivicventures.com` — the web version of the app (optional) | Either: the VPS, or **Hostinger web hosting as static files** | It is a static export; see below. |
+
+Only the `api` subdomain's DNS record points at the VPS.
+
+---
+
+## Walkthrough — Hostinger VPS
+
+### 1. Order the VPS
+
+In hPanel, order a **VPS** plan. When it asks for an OS template, pick
+**Ubuntu 24.04** — or, if offered, the **Ubuntu with Docker** template, which
+saves you step 3.
+
+The smallest VPS tier is enough for this app. You can resize later.
+
+### 2. Point DNS at it
+
+Note the VPS's IPv4 address from hPanel, then in your DNS zone for
+`aivicventures.com` add:
+
+| Type | Name | Value | TTL |
+|---|---|---|---|
+| `A` | `api` | the VPS IP | default |
+
+Leave the apex (`@`) record alone — that is your website.
+
+Confirm before continuing, because Caddy requests a TLS certificate on first
+start and Let's Encrypt rate-limits repeated failures:
+
+```bash
+dig +short api.aivicventures.com
+```
+
+### 3. Connect and prepare the server
+
+SSH in as root using the credentials from hPanel:
+
+```bash
+ssh root@<your-vps-ip>
+```
+
+Clone the repo and run the prep script, which installs Docker, creates a
+non-root user, and configures the firewall:
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/doctitong-GoogleAIStudio/doctitong-GoogleAIStudio-DermaLens-AI.git /opt/dermalens-src
+cd /opt/dermalens-src
+less deploy/hostinger-vps-setup.sh     # read it — it runs as root
+bash deploy/hostinger-vps-setup.sh
+```
+
+It detects which port `sshd` is really listening on before enabling the
+firewall, so a VPS whose SSH has been moved off 22 does not lock you out. If
+detection is ever wrong, pass the port explicitly:
+
+```bash
+SSH_PORT=2222 bash deploy/hostinger-vps-setup.sh
+```
+
+The script is idempotent — re-running it is safe.
+
+Or do the same by hand:
+
+```bash
+apt-get update && apt-get upgrade -y
+curl -fsSL https://get.docker.com | sh
+adduser --disabled-password --gecos "" dermalens
+usermod -aG docker dermalens
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
+ufw --force enable
+```
+
+Only 22, 80 and 443 are open. MongoDB is never exposed — it is reachable only
+from the backend container on Docker's internal network.
+
+### 4. Deploy
+
+```bash
+su - dermalens
+git clone https://github.com/doctitong-GoogleAIStudio/doctitong-GoogleAIStudio-DermaLens-AI.git
+cd doctitong-GoogleAIStudio-DermaLens-AI
+
+cp .env.example .env
+cp backend/.env.example backend/.env
+```
+
+Edit `.env`:
+
+```bash
+MONGO_ROOT_PASSWORD=<openssl rand -hex 24>
+API_DOMAIN=api.aivicventures.com
+TLS_EMAIL=admin@aivicventures.com
+WEB_DOMAIN=                      # leave empty unless serving the web app here
+```
+
+Edit `backend/.env`:
+
+```bash
+JWT_SECRET=<openssl rand -hex 32>
+GEMINI_API_KEY=<from https://aistudio.google.com/apikey>
+DB_NAME=dermalens
+PUBLIC_BASE_URL=https://api.aivicventures.com
+```
+
+> If you are moving from the Emergent-hosted database, copy the **existing**
+> `JWT_SECRET` and `ACTIVATION_SECRET` instead of generating new ones, or you
+> will sign out every user and invalidate every activation key already issued.
+> See [SELF-HOSTING.md](SELF-HOSTING.md#migrating-data-off-emergent).
+
+Start it:
+
+```bash
+docker compose --profile proxy up -d --build
+docker compose ps
+docker compose logs -f backend
+```
+
+### 5. Verify
+
+```bash
+curl -s https://api.aivicventures.com/api/health
+```
+
+Expect `"status": "ok"` with `"mongo": true`. If TLS fails, check
+`docker compose logs caddy` — nearly always DNS not yet propagated.
+
+### 6. Rebuild the app against the new URL
+
+`EXPO_PUBLIC_BACKEND_URL` is compiled into the bundle, so the published app will
+keep calling the old backend until you ship a new build. Set it to
+`https://api.aivicventures.com` and build with `versionCode` **≥ 125**. See
+[SELF-HOSTING.md](SELF-HOSTING.md#pointing-the-mobile-app-at-your-backend) and
+[SIGNING.md](SIGNING.md).
+
+Also update the Play Console URLs, which still point at the Emergent preview
+host:
+
+- Privacy policy → `https://api.aivicventures.com/api/privacy-policy`
+- Account deletion → `https://api.aivicventures.com/api/account-deletion`
+
+### 7. Updating later
+
+```bash
+cd ~/doctitong-GoogleAIStudio-DermaLens-AI
+git pull
+docker compose --profile proxy up -d --build
+```
+
+---
+
+## Serving the web app from your existing Hostinger site
+
+The web build is plain static files, so Hostinger **web** hosting can serve it —
+no VPS needed for this part. Build it on your own machine:
+
+```bash
+cd frontend
+EXPO_PUBLIC_BACKEND_URL=https://api.aivicventures.com \
+  npx expo export --platform web --output-dir dist
+```
+
+Upload the contents of `dist/` to `public_html/` (or a subdomain's folder) with
+hPanel's File Manager or FTP.
+
+Two things to get right:
+
+1. **SPA fallback.** Expo Router needs unknown paths to serve `index.html`, or
+   refreshing `/assessment` gives a 404. Add `.htaccess` next to `index.html`:
+
+   ```apache
+   <IfModule mod_rewrite.c>
+     RewriteEngine On
+     RewriteBase /
+     RewriteRule ^index\.html$ - [L]
+     RewriteCond %{REQUEST_FILENAME} !-f
+     RewriteCond %{REQUEST_FILENAME} !-d
+     RewriteRule . /index.html [L]
+   </IfModule>
+   ```
+
+2. **CORS.** The browser will call the API cross-origin, so allow that origin in
+   `backend/.env` on the VPS:
+
+   ```bash
+   CORS_ALLOW_ORIGINS=https://aivicventures.com,https://app.aivicventures.com
+   ```
+
+   Then `docker compose up -d backend`. (The mobile app is unaffected — it sends
+   no `Origin` header.)
+
+---
+
+## Database choice
+
+Two options, both fine:
+
+**MongoDB in Docker on the VPS** (the default — already in `docker-compose.yml`).
+Nothing to configure. The data lives in the `mongo-data` volume. Back it up
+yourself (below).
+
+**MongoDB Atlas** — their free tier is enough for this app's data (accounts,
+usage counters, subscriptions; photos and scans never reach the server). Managed
+backups, and it survives you rebuilding the VPS. To use it, comment out the
+`MONGO_URL` override in `docker-compose.yml`'s `backend` service, set the
+`mongodb+srv://` URI in `backend/.env`, and allow-list the VPS IP in Atlas.
+
+If your VPS is the smallest tier and you would rather not run a database on it,
+Atlas is the easier choice.
+
+---
+
+## Backups
+
+Hostinger VPS plans include **snapshots** in hPanel — take one after the first
+successful deploy. Snapshots are whole-machine and manual, so also dump the
+database on a schedule:
+
+```bash
+# crontab -e  (as the dermalens user)
+0 3 * * * cd ~/doctitong-GoogleAIStudio-DermaLens-AI && \
+  docker compose exec -T mongo mongodump --username dermalens \
+  --password "$MONGO_ROOT_PASSWORD" --authenticationDatabase admin \
+  --archive --gzip > ~/backups/dermalens-$(date -u +\%Y\%m\%d).gz
+```
+
+Keep `backend/.env` somewhere off the server. `JWT_SECRET` and
+`ACTIVATION_SECRET` cannot be regenerated without disrupting live users.
+
+---
+
+## Costs
+
+What you will be paying for, as an order of magnitude — check current pricing in
+hPanel, since this changes:
+
+| Item | Notes |
+|---|---|
+| Hostinger VPS, smallest tier | A few dollars a month. Replaces the Emergent hosting cost. |
+| Your existing web hosting | Unchanged — keep it for aivicventures.com. |
+| TLS certificates | Free. Caddy gets them from Let's Encrypt automatically. |
+| MongoDB | Free on the VPS, or Atlas free tier. |
+| Gemini API | Pay-per-use, billed by Google. The real variable cost — `ANALYSES_PER_HOUR` and `FREE_ANALYSES` in `backend/.env` are your ceilings. |
+| Email | Free. SMTP through a mailbox you already have, or Resend's free tier. |

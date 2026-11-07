@@ -86,6 +86,10 @@ docker compose up -d --build
 [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) covers Docker Compose, a plain VM
 with systemd, managed platforms, HTTPS, email, database migration and backups.
 
+Deploying on Hostinger specifically: [docs/HOSTINGER.md](docs/HOSTINGER.md).
+Note that this backend needs a **VPS** plan — shared/Business web hosting is
+PHP + MySQL only and cannot run a Python service or MongoDB.
+
 Release signing for the Play Store is in [docs/SIGNING.md](docs/SIGNING.md).
 Android `versionCode` must exceed **124**, the highest published so far.
 
