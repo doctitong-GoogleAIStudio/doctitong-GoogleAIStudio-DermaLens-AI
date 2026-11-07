@@ -33,6 +33,10 @@ this package must be signed with the same keystore and use `versionCode` > 124.
 
 The separate **DermaLens AI** listing uses package `com.dermalensai.app`; no existing build matches it.
 
+> **Correction (2026-11-07):** the owner confirmed from Play Console that the DermaLens AI
+> listing is actually bound to `com.aivicventures.dermalensai.app`, which is what the app now
+> ships as. The line above is left for the record but should not be relied on.
+
 ## Known cosmetic issues (fix in the Emergent project, not here)
 
 - `expo.name` is `"DermaLens AI v1.1.8"`, so the launcher label includes the version.
