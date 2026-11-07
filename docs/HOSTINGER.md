@@ -459,5 +459,5 @@ hPanel, since this changes:
 | Your existing web hosting | Unchanged — keep it for aivicventures.com. |
 | TLS certificates | Free. Caddy gets them from Let's Encrypt automatically. |
 | MongoDB | Free on the VPS, or Atlas free tier. |
-| Gemini API | Pay-per-use, billed by Google per token. The real variable cost — `ANALYSES_PER_HOUR` and `FREE_ANALYSES` in `backend/.env` are your ceilings. Measure it with `python3 scripts/measure-gemini-cost.py` before launch, and set a budget alert in Google Cloud Billing. |
+| Gemini API | Pay-per-use, billed by Google per token. Measured at ~4,880 input + ~250 output tokens per 4-photo analysis, and **image resolution does not change the input count** on gemini-3.1-pro-preview, so resizing photos saves bandwidth but not money. The real variable cost — `ANALYSES_PER_HOUR` and `FREE_ANALYSES` in `backend/.env` are your ceilings. Measure it with `python3 scripts/measure-gemini-cost.py` before launch, and set a budget alert in Google Cloud Billing. |
 | Email | Free. SMTP through a mailbox you already have, or Resend's free tier. |

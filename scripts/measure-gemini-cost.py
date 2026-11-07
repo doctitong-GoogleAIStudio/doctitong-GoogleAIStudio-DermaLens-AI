@@ -11,6 +11,18 @@ Answers two questions:
   1. What does one analysis actually cost today?
   2. How much would resizing photos before upload save?
 
+MEASURED RESULT (gemini-3.1-pro-preview, 2026-11, 4 photos per call):
+input tokens were 4,880 at EVERY resolution tested — 4032x3024, 1536x1152,
+1024x768 and 768x576 all cost exactly the same. This model appears to
+normalise images server-side rather than billing per tile, so downscaling
+before upload saves nothing on the API bill. It still cuts upload time and
+the user's mobile data (3,301 KB vs 214 KB per photo), which is a real UX
+win, just not a cost one. Output was 163-315 tokens, varying with the
+answer rather than the image.
+
+Re-run this when changing model: the result above is model-specific and
+should not be assumed to hold for another one.
+
 Usage:
     export GEMINI_API_KEY=...            # or put it in backend/.env
     python3 scripts/measure-gemini-cost.py
