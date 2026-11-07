@@ -1,10 +1,14 @@
 # DermaLens AI — Android signing
 
-> Rebranding (AI Dermatologist → DermaLens AI, publisher → aivicventures) does **not** require a
-> new signing key. The upload key is tied to the package `com.emergent.aidermatologistapp.r2pygs`,
-> not to the app name or the organisation string inside the certificate. Keep signing with the key
-> Google Play Console lists as the **upload key certificate** unless you deliberately run Google's
-> upload-key reset process.
+> **The package is now `com.dermalensai.app`** (it was `com.emergent.aidermatologistapp.r2pygs`),
+> changed because nothing had ever been uploaded to Play, so no upload key was registered and the
+> name was still free. The keystore described below is unchanged and is what should sign the first
+> upload under the new package.
+>
+> An upload key is tied to a package name, not to the app name or the organisation string in the
+> certificate, so rebranding alone never requires a new key. Once you have uploaded once, keep
+> signing with whatever Play Console lists as the **upload key certificate** unless you deliberately
+> run Google's upload-key reset process.
 
 ## How this project is signed today
 

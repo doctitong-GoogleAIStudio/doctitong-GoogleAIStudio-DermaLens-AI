@@ -1,6 +1,6 @@
 # DermaLens AI — Account & Subscription management (v1.1.3)
 
-Developer / publisher: **aivicventures**. Package stays `com.emergent.aidermatologistapp.r2pygs`.
+Developer / publisher: **aivicventures**. Package: `com.dermalensai.app`.
 
 ## In the app
 
@@ -43,7 +43,7 @@ The Billing Library already enforces the entitlement correctly for every state (
 ```
 SUPPORT_EMAIL=support@yourdomain          # printed on both public pages
 PUBLIC_BASE_URL=https://api.yourdomain    # only for the deletion URL shown in the policy text
-ANDROID_PACKAGE_NAME=com.emergent.aidermatologistapp.r2pygs
+ANDROID_PACKAGE_NAME=com.dermalensai.app
 PLAY_SERVICE_ACCOUNT_JSON=<inline JSON or path>   # enables /api/billing/subscription verification
 PLAY_TRIAL_OFFER_IDS=freetrial-7d          # optional: which Play offer ids are free trials
 DELETION_RECORD_RETENTION_DAYS=730

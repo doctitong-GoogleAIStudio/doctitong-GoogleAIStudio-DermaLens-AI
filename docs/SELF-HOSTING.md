@@ -33,14 +33,23 @@ Gemini, email, Google Play verification — runs on infrastructure you control.
 `generativelanguage.googleapis.com` directly with your own `GEMINI_API_KEY`, so
 AI analysis needed no migration.
 
-### One thing that intentionally did *not* change
+### The package name, which also changed
 
-The Android package name stays **`com.emergent.aidermatologistapp.r2pygs`**.
+The Android package is now **`com.dermalensai.app`**, replacing
+`com.emergent.aidermatologistapp.r2pygs`.
 
-Google Play identifies a published app by its package name permanently. Changing
-it creates a *different* app — new listing, no existing installs, no reviews, no
-subscribers. The string contains "emergent" for historical reasons only; it has
-no runtime connection to the platform. Leave it alone.
+Google Play binds a package name permanently **on the first upload**, and
+nothing had ever been uploaded for this app — no bundle on any track, on either
+listing, so no upload key was registered. That made the old name changeable, and
+it was the last place the word "emergent" survived.
+
+If you are reading this having already published, the reverse applies: the
+package is fixed, changing it creates a *different* app with no installs,
+reviews or subscribers, and you should leave it alone.
+
+`ANDROID_PACKAGE_NAME` in `backend/.env` must always match `android.package` in
+`frontend/app.json`, or Google Play subscription verification looks up purchases
+for the wrong app.
 
 ---
 
@@ -477,7 +486,7 @@ Full annotated list: [`backend/.env.example`](../backend/.env.example).
 | `EMAIL_FROM` / `EMAIL_FROM_NAME` | Envelope sender. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_SECURITY` | SMTP provider. |
 | `RESEND_API_KEY` | Resend provider. |
-| `ANDROID_PACKAGE_NAME` | Leave as `com.emergent.aidermatologistapp.r2pygs`. |
+| `ANDROID_PACKAGE_NAME` | Must equal `android.package` in `frontend/app.json` (`com.dermalensai.app`). |
 | `PLAY_SERVICE_ACCOUNT_JSON` | Inline JSON or a file path. Blank skips verification. |
 | `PLAY_TRIAL_OFFER_IDS` | Comma-separated free-trial offer ids. |
 | `ACTIVATION_SECRET` | Must match the app and the offline key generator. |

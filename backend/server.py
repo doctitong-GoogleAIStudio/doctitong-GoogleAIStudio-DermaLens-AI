@@ -86,8 +86,9 @@ SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "")
 # Absolute https origin of this backend as seen from the internet, e.g. https://api.example.com.
 # Only used to print the account-deletion URL inside the privacy policy text.
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-# Must equal android.package in frontend/app.json (never changes — Play identifies the app by it).
-ANDROID_PACKAGE_NAME = os.environ.get("ANDROID_PACKAGE_NAME", "com.emergent.aidermatologistapp.r2pygs")
+# Must equal android.package in frontend/app.json. Play binds this permanently on the
+# first upload, so it cannot change once the app is published.
+ANDROID_PACKAGE_NAME = os.environ.get("ANDROID_PACKAGE_NAME", "com.dermalensai.app")
 # Google Cloud service-account JSON (inline or file path) with the Play Console "View financial data /
 # Manage orders and subscriptions" permission. Optional: leave empty to skip server-side verification.
 PLAY_SERVICE_ACCOUNT_JSON = os.environ.get("PLAY_SERVICE_ACCOUNT_JSON", "")
