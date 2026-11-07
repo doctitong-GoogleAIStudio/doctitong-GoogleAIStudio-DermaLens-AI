@@ -151,7 +151,20 @@ def measure(client, model, api_key, images_b64, system, prompt, schema):
         json=body,
     )
     if r.status_code != 200:
-        return None, f"HTTP {r.status_code}: {r.text[:300]}"
+        detail = r.text[:1500]
+        if r.status_code == 429:
+            # The useful part of a 429 is the quota metric name and limit,
+            # which sits deep in the JSON and is easy to truncate away.
+            try:
+                for d in r.json().get("error", {}).get("details", []):
+                    for v in d.get("violations", []):
+                        detail = (f"quota '{v.get('quotaMetric', '?')}' "
+                                  f"limit {v.get('quotaValue', '?')} "
+                                  f"(model: {v.get('quotaDimensions', {}).get('model', '?')})")
+                        break
+            except ValueError:
+                pass
+        return None, f"HTTP {r.status_code}: {detail}"
     u = r.json().get("usageMetadata", {})
     return {
         "prompt": u.get("promptTokenCount", 0),
@@ -219,6 +232,7 @@ def main() -> int:
         return 1
 
     rows = []
+    any_429 = False
     with httpx.Client(timeout=args.timeout) as client:
         for s in sizes:
             w, h = scaled(s)
@@ -230,12 +244,31 @@ def main() -> int:
                                  [b64] * args.images, system, prompt, schema)
             if err:
                 print(f" FAILED\n    {err}")
+                if err.startswith("HTTP 429"):
+                    any_429 = True
                 continue
             print(f" prompt {usage['prompt']:,} / output {usage['output']:,} tokens")
             rows.append((label, w, h, kb, usage))
 
     if not rows:
         print("\nNo successful calls.", file=sys.stderr)
+        if any_429:
+            print("""
+A 429 means this API key has no quota for this model — not that you sent too
+many requests. Two usual causes:
+
+  1. Billing is not enabled on the key's Google Cloud project. Preview and Pro
+     models often have a free-tier limit of zero, so the very first call fails.
+     Enable billing, or create the key in a project that already has it.
+
+  2. The model is not available to this key. Try a Flash model, which free
+     tiers normally do allow:
+
+       --model gemini-2.5-flash
+
+This affects the running app too, not just this script: /api/analyze calls the
+same endpoint. Whatever model works here is the one to put in GEMINI_MODEL in
+backend/.env.""", file=sys.stderr)
         return 1
 
     print()
