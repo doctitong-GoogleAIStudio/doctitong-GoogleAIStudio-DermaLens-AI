@@ -54,7 +54,15 @@ GEMINI_TIMEOUT_SECONDS = 90.0
 ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
 # Free analyses per ACCOUNT before the paywall. Counted from analysis_logs so a reinstall
 # cannot reset it. Must match FREE_ANALYSES in frontend/src/billing/products.ts.
+# NOTE: this is reported by /api/billing/usage and enforced by the app, not here.
 FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
+# Hard ceiling on analyses per account per calendar month (UTC). Unlike FREE_ANALYSES
+# this IS enforced server-side, so a modified client cannot spend past it.
+# Sizing it: at ~$0.013 per analysis, 100/month is ~$1.30 of Gemini cost — roughly
+# 30% of what a $4.99 subscription nets after Google Play's cut. Raise it if your
+# plan costs more, and re-measure with scripts/measure-gemini-cost.py when the
+# model changes. Set to 0 for no monthly ceiling.
+ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "100"))
 
 # Outbound email (admin notifications only) is handled by mailer.py: SMTP or the
 # Resend API, whichever is configured. Leave it unconfigured to disable email —
@@ -211,6 +219,20 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> PublicUser:
     if not doc:
         raise cred_exc
     return public_user(doc)
+
+
+def month_window(now: Optional[datetime] = None) -> tuple:
+    """First instant of the current UTC calendar month, and of the next one.
+
+    The monthly allowance resets on the 1st rather than on each subscriber's own
+    renewal date, because the renewal date is only known when Play verification
+    is configured (PLAY_SERVICE_ACCOUNT_JSON), which is optional.
+    """
+    now = now or datetime.now(timezone.utc)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Day 32 of any month always lands in the next one; snap back to its 1st.
+    nxt = (start + timedelta(days=32)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return start, nxt
 
 
 def require_activation_secret() -> None:
@@ -495,6 +517,23 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
             status_code=429,
             detail=f"You have reached the limit of {ANALYSES_PER_HOUR} analyses per hour. Please try again later.",
         )
+
+    # Monthly ceiling. This is what bounds the worst case: without it the hourly
+    # limit alone still permits ~7,200 analyses a month from one account, which
+    # costs far more in Gemini usage than any subscription brings in.
+    if ANALYSES_PER_MONTH > 0:
+        month_start, month_end = month_window()
+        this_month = await db.analysis_logs.count_documents(
+            {field: principal.id, "status": 200, "created_at": {"$gte": month_start}}
+        )
+        if this_month >= ANALYSES_PER_MONTH:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"You have used all {ANALYSES_PER_MONTH} analyses included this month. "
+                    f"Your allowance resets on {month_end.strftime('%-d %B')}."
+                ),
+            )
 
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set in backend/.env")
@@ -923,7 +962,19 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
     on-device counter (max of the two) so the free analysis survives uninstall/reinstall and
     cannot be re-earned by signing in again."""
     used = await db.analysis_logs.count_documents({"user_id": current_user.id, "status": 200})
-    return {"analyses_used": used, "free_analyses": FREE_ANALYSES}
+    month_start, month_end = month_window()
+    this_month = await db.analysis_logs.count_documents(
+        {"user_id": current_user.id, "status": 200, "created_at": {"$gte": month_start}}
+    )
+    return {
+        "analyses_used": used,
+        "free_analyses": FREE_ANALYSES,
+        # 0 means no monthly ceiling is configured.
+        "monthly_used": this_month,
+        "monthly_limit": ANALYSES_PER_MONTH,
+        "monthly_remaining": (max(0, ANALYSES_PER_MONTH - this_month) if ANALYSES_PER_MONTH else None),
+        "monthly_resets_at": month_end.isoformat(),
+    }
 
 
 @api_router.post("/billing/subscription")
