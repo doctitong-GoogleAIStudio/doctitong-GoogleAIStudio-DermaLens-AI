@@ -389,5 +389,5 @@ hPanel, since this changes:
 | Your existing web hosting | Unchanged — keep it for aivicventures.com. |
 | TLS certificates | Free. Caddy gets them from Let's Encrypt automatically. |
 | MongoDB | Free on the VPS, or Atlas free tier. |
-| Gemini API | Pay-per-use, billed by Google. The real variable cost — `ANALYSES_PER_HOUR` and `FREE_ANALYSES` in `backend/.env` are your ceilings. |
+| Gemini API | Pay-per-use, billed by Google per token. The real variable cost — `ANALYSES_PER_HOUR` and `FREE_ANALYSES` in `backend/.env` are your ceilings. Measure it with `python3 scripts/measure-gemini-cost.py` before launch, and set a budget alert in Google Cloud Billing. |
 | Email | Free. SMTP through a mailbox you already have, or Resend's free tier. |

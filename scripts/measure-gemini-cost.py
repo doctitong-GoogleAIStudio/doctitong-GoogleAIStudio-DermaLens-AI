@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Measure the real Gemini token cost of one DermaLens analysis.
+
+Sends the ACTUAL system instruction, prompt and response schema from
+backend/server.py — not an approximation — with synthetic photos at several
+resolutions, then reads `usageMetadata` back from the API. Image tokens depend
+on pixel dimensions, not on what the photo shows, so a generated image measures
+exactly what a real lesion photo of the same size would cost.
+
+Answers two questions:
+  1. What does one analysis actually cost today?
+  2. How much would resizing photos before upload save?
+
+Usage:
+    export GEMINI_API_KEY=...            # or put it in backend/.env
+    python3 scripts/measure-gemini-cost.py
+
+    # compare models
+    python3 scripts/measure-gemini-cost.py --model gemini-3.1-pro-preview
+    python3 scripts/measure-gemini-cost.py --model gemini-2.5-flash
+
+    # turn tokens into money (rates from https://ai.google.dev/gemini-api/docs/pricing)
+    python3 scripts/measure-gemini-cost.py --in-price 1.25 --out-price 10.00
+
+This makes real, billed API calls. It is a handful of small requests — cents at
+most — but it is not free. Pass --dry-run to see the plan without calling.
+
+Requires: pillow, httpx (both already in backend/requirements.txt).
+"""
+
+import argparse
+import base64
+import io
+import os
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+BACKEND = REPO / "backend"
+sys.path.insert(0, str(BACKEND))
+
+# server.py reads these at import time. Dummy values are fine — nothing
+# connects to Mongo here, we only borrow the prompt constants.
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
+os.environ.setdefault("DB_NAME", "measure")
+os.environ.setdefault("JWT_SECRET", "measure")
+
+try:
+    import httpx
+    from PIL import Image
+except ImportError as e:
+    sys.exit(f"Missing dependency: {e}. Install with:\n"
+             f"  pip install -r {BACKEND / 'requirements.txt'}")
+
+
+def load_env_file() -> None:
+    """Pick up GEMINI_API_KEY from backend/.env if it is not already exported."""
+    if os.environ.get("GEMINI_API_KEY"):
+        return
+    env = BACKEND / ".env"
+    if not env.is_file():
+        return
+    for line in env.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("GEMINI_API_KEY=") and not line.startswith("#"):
+            value = line.split("=", 1)[1].strip().strip('"').strip("'")
+            if value:
+                os.environ["GEMINI_API_KEY"] = value
+            return
+
+
+def jpeg_at(width: int, height: int, quality: int = 50) -> str:
+    """A photo-like JPEG of the given size, base64-encoded.
+
+    quality=50 matches `quality: 0.5` in frontend/app/capture.tsx.
+    """
+    img = Image.new("RGB", (width, height))
+    px = img.load()
+    # Smooth gradient plus texture, so the encoder produces a realistic size.
+    for y in range(0, height, 4):
+        for x in range(0, width, 4):
+            px[x, y] = ((x * 3 + y) % 256, (y * 5) % 256, (x ^ y) % 256)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def scaled(longest_edge: int | None, base=(4032, 3024)) -> tuple[int, int]:
+    """Phone photo scaled so its longest edge is `longest_edge` (None = original)."""
+    w, h = base
+    if longest_edge is None or max(w, h) <= longest_edge:
+        return w, h
+    f = longest_edge / max(w, h)
+    return int(w * f), int(h * f)
+
+
+def measure(client, model, api_key, images_b64, system, prompt, schema):
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{
+            "parts": [{"text": prompt}]
+                     + [{"inline_data": {"mime_type": "image/jpeg", "data": b}} for b in images_b64],
+        }],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+            "temperature": 0.4,
+        },
+    }
+    r = client.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        json=body,
+    )
+    if r.status_code != 200:
+        return None, f"HTTP {r.status_code}: {r.text[:300]}"
+    u = r.json().get("usageMetadata", {})
+    return {
+        "prompt": u.get("promptTokenCount", 0),
+        "output": u.get("candidatesTokenCount", 0),
+        "total": u.get("totalTokenCount", 0),
+    }, None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--model", default=os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview"))
+    ap.add_argument("--sizes", default="none,1536,1024,768",
+                    help="comma-separated longest-edge values; 'none' = full resolution")
+    ap.add_argument("--images", type=int, default=1,
+                    help="photos per request (the app allows up to 4)")
+    ap.add_argument("--in-price", type=float, help="USD per 1M input tokens")
+    ap.add_argument("--out-price", type=float, help="USD per 1M output tokens")
+    ap.add_argument("--timeout", type=float, default=120.0)
+    ap.add_argument("--dry-run", action="store_true", help="show the plan, call nothing")
+    args = ap.parse_args()
+
+    import server  # noqa: E402  — needs the env defaults set above
+    from server import AnalyzeIn, AnalyzeImageIn, ClinicalHistoryIn
+
+    system = server.ANALYSIS_SYSTEM
+    schema = server.GEMINI_RESPONSE_SCHEMA
+    sample = AnalyzeIn(
+        images=[AnalyzeImageIn(data=base64.b64encode(b"\xff\xd8\xff\xe0" + b"0" * 64).decode(),
+                               mimeType="image/jpeg")],
+        history=ClinicalHistoryIn(location="left forearm", duration="3 months",
+                                  symptoms="mild itching", changes="slowly enlarging"),
+    )
+    prompt = server._build_analysis_prompt(sample)
+
+    sizes = [None if s.strip().lower() in ("none", "full", "0") else int(s)
+             for s in args.sizes.split(",") if s.strip()]
+
+    print(f"Model            : {args.model}")
+    print(f"Photos per call  : {args.images}")
+    print(f"Text overhead    : system {len(system):,} chars + prompt {len(prompt):,} chars "
+          f"+ schema {len(str(schema)):,} chars")
+    print(f"Calls to make    : {len(sizes)}")
+    print()
+
+    if args.dry_run:
+        for s in sizes:
+            w, h = scaled(s)
+            print(f"  would send {args.images} x {w}x{h}")
+        print("\nDry run — nothing was called and nothing was billed.")
+        return 0
+
+    load_env_file()
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        print("GEMINI_API_KEY is not set.\n", file=sys.stderr)
+        print("Export it, or add it to backend/.env:", file=sys.stderr)
+        print("  export GEMINI_API_KEY=...", file=sys.stderr)
+        print("\nGet a key at https://aistudio.google.com/apikey", file=sys.stderr)
+        return 1
+
+    rows = []
+    with httpx.Client(timeout=args.timeout) as client:
+        for s in sizes:
+            w, h = scaled(s)
+            b64 = jpeg_at(w, h)
+            kb = len(base64.b64decode(b64)) / 1024
+            label = "full res" if s is None else f"{s}px"
+            print(f"  calling {label:>9} ({w}x{h}, {kb:,.0f} KB each) ...", end="", flush=True)
+            usage, err = measure(client, args.model, api_key,
+                                 [b64] * args.images, system, prompt, schema)
+            if err:
+                print(f" FAILED\n    {err}")
+                continue
+            print(f" prompt {usage['prompt']:,} / output {usage['output']:,} tokens")
+            rows.append((label, w, h, kb, usage))
+
+    if not rows:
+        print("\nNo successful calls.", file=sys.stderr)
+        return 1
+
+    print()
+    header = f"{'photo size':>10} {'pixels':>12} {'KB':>7} {'in tok':>9} {'out tok':>8} {'total':>9}"
+    money = args.in_price is not None and args.out_price is not None
+    if money:
+        header += f" {'USD/call':>10} {'per 1k':>9}"
+    print(header)
+    print("-" * len(header))
+
+    baseline = None
+    for label, w, h, kb, u in rows:
+        line = (f"{label:>10} {f'{w}x{h}':>12} {kb:>7,.0f} "
+                f"{u['prompt']:>9,} {u['output']:>8,} {u['total']:>9,}")
+        if money:
+            cost = u["prompt"] / 1e6 * args.in_price + u["output"] / 1e6 * args.out_price
+            line += f" {cost:>10.5f} {cost*1000:>9.2f}"
+        print(line)
+        if baseline is None:
+            baseline = u["prompt"]
+
+    print()
+    for label, w, h, kb, u in rows[1:]:
+        saving = (1 - u["prompt"] / baseline) * 100 if baseline else 0
+        print(f"  resizing to {label:>7} cuts input tokens by {saving:5.1f}% "
+              f"({baseline:,} -> {u['prompt']:,})")
+
+    if not money:
+        print("\nFor dollar figures, re-run with current rates, e.g.:")
+        print("  --in-price 1.25 --out-price 10.00")
+        print("  (https://ai.google.dev/gemini-api/docs/pricing)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
