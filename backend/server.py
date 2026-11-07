@@ -88,7 +88,7 @@ SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 # Must equal android.package in frontend/app.json. Play binds this permanently on the
 # first upload, so it cannot change once the app is published.
-ANDROID_PACKAGE_NAME = os.environ.get("ANDROID_PACKAGE_NAME", "com.dermalensai.app")
+ANDROID_PACKAGE_NAME = os.environ.get("ANDROID_PACKAGE_NAME", "com.aivicventures.dermalensai.app")
 # Google Cloud service-account JSON (inline or file path) with the Play Console "View financial data /
 # Manage orders and subscriptions" permission. Optional: leave empty to skip server-side verification.
 PLAY_SERVICE_ACCOUNT_JSON = os.environ.get("PLAY_SERVICE_ACCOUNT_JSON", "")

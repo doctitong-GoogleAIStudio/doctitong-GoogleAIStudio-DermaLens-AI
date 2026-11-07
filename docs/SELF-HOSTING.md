@@ -35,7 +35,7 @@ AI analysis needed no migration.
 
 ### The package name, which also changed
 
-The Android package is now **`com.dermalensai.app`**, replacing
+The Android package is now **`com.aivicventures.dermalensai.app`**, replacing
 `com.emergent.aidermatologistapp.r2pygs`.
 
 Google Play binds a package name permanently **on the first upload**, and
@@ -486,7 +486,7 @@ Full annotated list: [`backend/.env.example`](../backend/.env.example).
 | `EMAIL_FROM` / `EMAIL_FROM_NAME` | Envelope sender. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_SECURITY` | SMTP provider. |
 | `RESEND_API_KEY` | Resend provider. |
-| `ANDROID_PACKAGE_NAME` | Must equal `android.package` in `frontend/app.json` (`com.dermalensai.app`). |
+| `ANDROID_PACKAGE_NAME` | Must equal `android.package` in `frontend/app.json` (`com.aivicventures.dermalensai.app`). |
 | `PLAY_SERVICE_ACCOUNT_JSON` | Inline JSON or a file path. Blank skips verification. |
 | `PLAY_TRIAL_OFFER_IDS` | Comma-separated free-trial offer ids. |
 | `ACTIVATION_SECRET` | Must match the app and the offline key generator. |

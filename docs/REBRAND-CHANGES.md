@@ -2,7 +2,7 @@
 
 > **Historical.** This describes changes to make inside the Emergent project, which
 > this app no longer uses, and refers to the old package `com.emergent.aidermatologistapp.r2pygs`,
-> now `com.dermalensai.app`. Kept as a record of the rebrand. For how the app is
+> now `com.aivicventures.dermalensai.app`. Kept as a record of the rebrand. For how the app is
 > built and deployed today see [SELF-HOSTING.md](SELF-HOSTING.md).
 
 ## Patched builds (done — see `build/`)

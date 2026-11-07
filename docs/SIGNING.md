@@ -1,6 +1,6 @@
 # DermaLens AI — Android signing
 
-> **The package is now `com.dermalensai.app`** (it was `com.emergent.aidermatologistapp.r2pygs`),
+> **The package is now `com.aivicventures.dermalensai.app`** (it was `com.emergent.aidermatologistapp.r2pygs`),
 > changed because nothing had ever been uploaded to Play, so no upload key was registered and the
 > name was still free. The keystore described below is unchanged and is what should sign the first
 > upload under the new package.

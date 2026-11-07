@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dermalensai.app",
+      "bundleIdentifier": "com.aivicventures.dermalensai.app",
       "infoPlist": {
         "NSCameraUsageDescription": "Take photos of skin lesions for AI analysis",
         "NSPhotoLibraryUsageDescription": "Upload skin photos for AI analysis"
@@ -20,7 +20,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.dermalensai.app",
+      "package": "com.aivicventures.dermalensai.app",
       "versionCode": 1,
       "permissions": [
         "android.permission.CAMERA"
