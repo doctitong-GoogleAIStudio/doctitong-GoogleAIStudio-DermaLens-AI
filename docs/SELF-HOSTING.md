@@ -285,8 +285,18 @@ eas build:configure                      # creates eas.json on first run
 eas build --platform android --profile production
 ```
 
-Put `EXPO_PUBLIC_BACKEND_URL` in the profile's `env` block in `eas.json` so the
-cloud builder sees it.
+`frontend/eas.json` already carries `EXPO_PUBLIC_BACKEND_URL` in each profile's
+`env` block, so the cloud builder bakes the right backend into the bundle.
+
+It also sets `cli.appVersionSource` to `remote`, which matters: with `local`,
+EAS rewrites `android.versionCode` in `app.json` on every production build. If
+you build from a scratch clone those increments are thrown away, the local file
+and Play's real sequence drift apart, and a later build reuses a versionCode
+Play has already seen — which Play rejects. `remote` keeps the counter on EAS
+and leaves `app.json` alone.
+
+Note that `eas.json` is schema-validated and rejects unknown keys, so it cannot
+carry explanatory comments.
 
 Signing keys are covered in [SIGNING.md](SIGNING.md) — releases must be signed
 with **your** upload key, not the per-build key Emergent used. `versionCode`
