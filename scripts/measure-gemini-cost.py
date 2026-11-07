@@ -27,9 +27,9 @@ Usage:
     export GEMINI_API_KEY=...            # or put it in backend/.env
     python3 scripts/measure-gemini-cost.py
 
-    # compare models
-    python3 scripts/measure-gemini-cost.py --model gemini-3.1-pro-preview
-    python3 scripts/measure-gemini-cost.py --model gemini-2.5-flash
+    # see which models this key can use, then compare them
+    python3 scripts/measure-gemini-cost.py --list-models
+    python3 scripts/measure-gemini-cost.py --model <name-from-that-list>
 
     # turn tokens into money (rates from https://ai.google.dev/gemini-api/docs/pricing)
     python3 scripts/measure-gemini-cost.py --in-price 1.25 --out-price 10.00
@@ -197,7 +197,32 @@ def main() -> int:
     ap.add_argument("--out-price", type=float, help="USD per 1M output tokens")
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--dry-run", action="store_true", help="show the plan, call nothing")
+    ap.add_argument("--list-models", action="store_true",
+                    help="list the models this API key can actually use, then exit")
     args = ap.parse_args()
+
+    if args.list_models:
+        load_env_file()
+        key = os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            sys.exit("GEMINI_API_KEY is not set (export it, or put it in backend/.env).")
+        r = httpx.get("https://generativelanguage.googleapis.com/v1beta/models",
+                      headers={"x-goog-api-key": key}, timeout=args.timeout)
+        if r.status_code != 200:
+            sys.exit(f"HTTP {r.status_code}: {r.text[:500]}")
+        models = [m for m in r.json().get("models", [])
+                  if "generateContent" in m.get("supportedGenerationMethods", [])]
+        if not models:
+            sys.exit("This key can use no generateContent models.")
+        print(f"{'model':<40} {'in limit':>10} {'out limit':>10}  name")
+        print("-" * 90)
+        for m in sorted(models, key=lambda x: x["name"]):
+            print(f"{m['name'].replace('models/', ''):<40} "
+                  f"{m.get('inputTokenLimit', '?'):>10} "
+                  f"{m.get('outputTokenLimit', '?'):>10}  "
+                  f"{m.get('displayName', '')}")
+        print("\nMeasure one with:  --model <name from the first column>")
+        return 0
 
     system, schema, build_prompt, history_labels = load_prompt_pieces()
 
@@ -273,10 +298,10 @@ many requests. Two usual causes:
      models often have a free-tier limit of zero, so the very first call fails.
      Enable billing, or create the key in a project that already has it.
 
-  2. The model is not available to this key. Try a Flash model, which free
-     tiers normally do allow:
+  2. The model is not available to this key. Model names change and older
+     ones get retired, so ask the key what it can use rather than guessing:
 
-       --model gemini-2.5-flash
+       --list-models
 
 This affects the running app too, not just this script: /api/analyze calls the
 same endpoint. Whatever model works here is the one to put in GEMINI_MODEL in
