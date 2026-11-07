@@ -14,9 +14,11 @@
 {$API_DOMAIN} {
 	encode gzip
 
-	# The app posts base64 photos to /api/analyze; the default 10MB is tight.
+	# /api/analyze carries up to 4 photos of 8MB each (MAX_IMAGE_BYTES in
+	# server.py). Base64 inflates 32MB of image data to ~43MB, so anything
+	# below that rejects a full four-photo analysis with 413.
 	request_body {
-		max_size 32MB
+		max_size 64MB
 	}
 
 	reverse_proxy backend:8000 {
