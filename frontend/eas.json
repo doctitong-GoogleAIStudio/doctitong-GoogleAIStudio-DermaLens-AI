@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 5.0.0",
-    "appVersionSource": "local"
+    "_comment_appVersionSource": "remote: EAS stores and increments versionCode server-side. With 'local' it rewrites android.versionCode in app.json on every production build, which is lost when building from a throwaway clone and causes the Play version sequence to drift.",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
