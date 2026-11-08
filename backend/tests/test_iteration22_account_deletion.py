@@ -11,7 +11,7 @@ Tests (run against the live preview backend, like the other iteration suites):
 4. POST /api/account-deletion/request -> 202 for both existing and unknown addresses.
 5. GET /api/account-deletion and GET /api/privacy-policy return HTML that names
    DermaLens AI + aivicventures and no old branding.
-6. POST /api/billing/subscription returns {configured:false} when no service account is set
+6. POST /api/billing/credits/purchase refuses unknown products and unverifiable tokens
    (or a well-formed summary when it is) and 401 without a token.
 """
 import hashlib
@@ -151,27 +151,44 @@ class TestPublicPages:
         assert requests.get(f"{API}/").json()["message"] == "DermaLens AI API"
 
 
-class TestSubscriptionVerification:
+class TestCreditPurchaseVerification:
+    """POST /api/billing/credits/purchase — replaces the old subscription endpoint."""
+
     def test_requires_token(self):
-        r = requests.post(f"{API}/billing/subscription", json={"productId": "premium_monthly", "purchaseToken": "x" * 20})
+        r = requests.post(f"{API}/billing/credits/purchase",
+                          json={"productId": "credits_10", "purchaseToken": "x" * 20})
         assert r.status_code == 401
 
-    def test_unconfigured_or_summary(self):
-        _, token, _ = _signup("sub")
-        r = requests.post(f"{API}/billing/subscription", json={"productId": "premium_monthly", "purchaseToken": "x" * 20},
+    def test_unknown_product_rejected(self):
+        _, token, _ = _signup("creditbad")
+        r = requests.post(f"{API}/billing/credits/purchase",
+                          json={"productId": "not_a_pack", "purchaseToken": "x" * 20},
+                          headers=_auth(token))
+        assert r.status_code == 400, r.text
+
+    def test_unconfigured_or_verified(self):
+        _, token, _ = _signup("credit")
+        r = requests.post(f"{API}/billing/credits/purchase",
+                          json={"productId": "credits_10", "purchaseToken": "x" * 20},
                           headers=_auth(token))
         if not os.environ.get("PLAY_SERVICE_ACCOUNT_JSON"):
-            assert r.status_code == 200 and r.json() == {"configured": False}
+            # No service account: purchases cannot be verified, so nothing is granted.
+            assert r.status_code == 503, r.text
         else:
-            # A bogus token must come back as a clean "none" summary, never a raw Google error.
-            assert r.status_code in (200, 502), r.text
-            if r.status_code == 200:
-                assert r.json()["configured"] is True and "state" in r.json()
+            # A bogus token must be refused cleanly, never granted.
+            assert r.status_code in (400, 502), r.text
 
     def test_validation(self):
-        _, token, _ = _signup("subval")
-        r = requests.post(f"{API}/billing/subscription", json={"productId": "", "purchaseToken": "short"}, headers=_auth(token))
+        _, token, _ = _signup("creditval")
+        r = requests.post(f"{API}/billing/credits/purchase", json={"productId": "credits_10"},
+                          headers=_auth(token))
         assert r.status_code == 422
+
+    def test_balance_starts_at_zero(self):
+        _, token, _ = _signup("creditbal")
+        r = requests.get(f"{API}/billing/credits", headers=_auth(token))
+        assert r.status_code == 200, r.text
+        assert r.json()["balance"] == 0
 
 
 class TestBillingUsage:

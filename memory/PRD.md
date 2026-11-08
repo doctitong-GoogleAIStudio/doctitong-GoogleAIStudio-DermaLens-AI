@@ -68,7 +68,7 @@ GCash QR for payment (owner to upload).
 
 - Google Play Billing subscriptions (direct, `expo-iap` 5.6.0 — RevenueCat explicitly refused by
   user): 1 free analysis per device, then paywall with Monthly + Yearly plans
-  (`premium_monthly` / `premium_yearly`), no trial. Play is the source of truth; purchases are
+  (superseded 2026-11: consumable credit packs `credits_10`/`credits_30`/`credits_100`, no subscription). Play is the source of truth; purchases are
   acknowledged client-side; gating is disabled on web/iOS where Play cannot run.
   Details + remaining Play Console steps: `/app/memory/google_play_billing.md`. [DONE 2026-06]
 

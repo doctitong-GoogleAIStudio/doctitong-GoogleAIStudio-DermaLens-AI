@@ -75,11 +75,11 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # and the subscription grants nothing a free signup does not already have.
 # Set to 0 for no monthly ceiling.
 ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
-# Enforce FREE_ANALYSES server-side for accounts with no active Play subscription.
-# Off by default and deliberately so: the server only learns about a subscription
-# when the app reports its purchase token to /api/billing/subscription, so turning
-# this on before the app reliably does that would lock out paying users. Watch the
-# "would block" lines in the log first, then enable.
+# Enforce the paywall server-side: the free allowance first, then credits.
+# Off by default and deliberately so: credits are only granted once the app
+# reports a purchase token to /api/billing/credits/purchase, so enabling this
+# before that path works end to end would refuse customers who have paid. Watch
+# the "paywall: would block" lines in the log first, then enable.
 ENFORCE_PAYWALL = os.getenv("ENFORCE_PAYWALL", "false").strip().lower() in ("1", "true", "yes")
 
 # Google Play consumable products that grant analysis credits, as
@@ -910,49 +910,6 @@ async def purchase_credits(data: CreditPurchaseIn,
     return result
 
 
-async def current_entitlement(user_id: str) -> dict:
-    """Whether this account currently holds a paid entitlement, per the last
-    Google Play check the app reported.
-
-    Play is only reachable with a purchase token, which only the app has, so the
-    server cannot look this up on its own — it reads what /api/billing/subscription
-    last wrote. A record whose expiryTime has passed is treated as lapsed: the app
-    stopped re-verifying, so we must not keep granting access on its word.
-    """
-    result = {"entitled": False, "state": "none", "productId": None,
-              "expiryTime": None, "stale": False,
-              "verification_configured": bool(PLAY_SERVICE_ACCOUNT_JSON.strip())}
-    try:
-        cursor = db.subscriptions.find({"user_id": user_id, "entitled": True})
-        async for sub in cursor:
-            expiry = sub.get("expiryTime")
-            if expiry:
-                try:
-                    when = datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
-                    if when.tzinfo is None:
-                        when = when.replace(tzinfo=timezone.utc)
-                    if when <= datetime.now(timezone.utc):
-                        continue  # lapsed
-                except ValueError:
-                    # Unparseable expiry: trust the entitled flag rather than
-                    # revoking access over a formatting problem.
-                    pass
-            checked = sub.get("checked_at")
-            result.update({
-                "entitled": True,
-                "state": sub.get("state", "active"),
-                "productId": sub.get("productId"),
-                "expiryTime": expiry,
-                "stale": bool(checked and (datetime.now(timezone.utc) - checked).days > 7),
-            })
-            return result
-    except Exception as e:
-        # A database problem must not silently downgrade a paying user.
-        logger.error(f"entitlement lookup failed for {user_id}: {e}")
-        result["lookup_failed"] = True
-    return result
-
-
 @api_router.post("/analyze")
 async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_principal)):
     started = time.monotonic()
@@ -1230,6 +1187,7 @@ async def _delete_user_account(user: dict, source: str) -> dict:
     now = datetime.now(timezone.utc)
 
     await db.activation_requests.delete_many({"user_id": user_id})
+    # Legacy: rows from the subscription model this app no longer uses.
     await db.subscriptions.delete_many({"user_id": user_id})
     await db.activated_devices.update_many(
         {"activated_by_email": email},
@@ -1365,23 +1323,6 @@ async def privacy_policy_page():
 
 
 # --- Google Play subscription status (optional server-side verification) ---------------------
-class SubscriptionVerifyIn(BaseModel):
-    productId: str = Field(min_length=1, max_length=100)
-    purchaseToken: str = Field(min_length=10, max_length=2000)
-
-
-_PLAY_STATE_MAP = {
-    "SUBSCRIPTION_STATE_ACTIVE": "active",
-    "SUBSCRIPTION_STATE_CANCELED": "cancelled",
-    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD": "grace_period",
-    "SUBSCRIPTION_STATE_ON_HOLD": "on_hold",
-    "SUBSCRIPTION_STATE_PAUSED": "paused",
-    "SUBSCRIPTION_STATE_EXPIRED": "expired",
-    "SUBSCRIPTION_STATE_PENDING": "pending",
-    "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED": "none",
-}
-# Google Play keeps the entitlement in these states (the app may keep granting access).
-_PLAY_ENTITLED_STATES = {"active", "cancelled", "grace_period"}
 
 _play_token_cache: dict = {"token": "", "expires": 0.0}
 
@@ -1411,36 +1352,6 @@ def _play_access_token_sync() -> str:
     return creds.token
 
 
-def _summarize_play_subscription(product_id: str, payload: dict) -> dict:
-    raw_state = payload.get("subscriptionState", "")
-    state = _PLAY_STATE_MAP.get(raw_state, "unknown")
-    items = payload.get("lineItems") or []
-    line = next((li for li in items if li.get("productId") == product_id), items[0] if items else {})
-    offer = line.get("offerDetails") or {}
-    offer_id = offer.get("offerId")
-    if PLAY_TRIAL_OFFER_IDS:
-        is_trial = bool(offer_id) and offer_id in PLAY_TRIAL_OFFER_IDS
-    else:
-        # Without an explicit list, any introductory offer on a subscription is reported as a trial.
-        is_trial = bool(offer_id)
-    auto_renew = (line.get("autoRenewingPlan") or {}).get("autoRenewEnabled")
-    return {
-        "configured": True,
-        "state": state,
-        "entitled": state in _PLAY_ENTITLED_STATES,
-        "productId": line.get("productId") or product_id,
-        "basePlanId": offer.get("basePlanId"),
-        "offerId": offer_id,
-        "isTrial": is_trial,
-        "autoRenewing": bool(auto_renew) if auto_renew is not None else None,
-        "expiryTime": line.get("expiryTime"),
-        "startTime": payload.get("startTime"),
-        "acknowledged": payload.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
-        "testPurchase": "testPurchase" in payload,
-        "autoResumeTime": (payload.get("pausedStateContext") or {}).get("autoResumeTime"),
-    }
-
-
 @api_router.get("/billing/usage")
 async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
     """How many successful analyses this ACCOUNT has run, ever. The app compares it with its
@@ -1451,13 +1362,10 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
     this_month = await db.analysis_logs.count_documents(
         {"user_id": current_user.id, "status": 200, "created_at": {"$gte": month_start}}
     )
-    ent = await current_entitlement(current_user.id)
     return {
         "analyses_used": used,
         "free_analyses": FREE_ANALYSES,
-        "entitled": ent["entitled"],
-        "subscription_state": ent["state"],
-        "free_tier_enforced": ENFORCE_PAYWALL and ent["verification_configured"],
+        "paywall_enforced": ENFORCE_PAYWALL,
         "email_verification_required": REQUIRE_EMAIL_VERIFICATION,
         "credit_balance": await credit_balance(current_user.id),
         # 0 means no monthly ceiling is configured.
@@ -1466,51 +1374,6 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
         "monthly_remaining": (max(0, ANALYSES_PER_MONTH - this_month) if ANALYSES_PER_MONTH else None),
         "monthly_resets_at": month_end.isoformat(),
     }
-
-
-@api_router.post("/billing/subscription")
-async def verify_subscription(data: SubscriptionVerifyIn, current_user: PublicUser = Depends(get_current_user)):
-    """Looks a purchase token up in the Google Play Developer API (purchases.subscriptionsv2.get)
-    so the app can show grace-period / account-hold / trial / expiry — states the on-device
-    Billing Library cannot report. Google Play stays the source of truth; when no service
-    account is configured the app falls back to Billing Library status only."""
-    if not PLAY_SERVICE_ACCOUNT_JSON.strip():
-        return {"configured": False}
-
-    try:
-        token = await run_in_threadpool(_play_access_token_sync)
-    except Exception as e:
-        logger.error(f"Play service-account auth failed: {e}")
-        raise HTTPException(status_code=500, detail="Subscription verification is not configured correctly.")
-
-    url = (
-        f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{ANDROID_PACKAGE_NAME}"
-        f"/purchases/subscriptionsv2/tokens/{data.purchaseToken}"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=20) as hc:
-            resp = await hc.get(url, headers={"Authorization": f"Bearer {token}"})
-    except httpx.HTTPError as e:
-        logger.error(f"Play API transport error: {e}")
-        raise HTTPException(status_code=502, detail="Google Play could not be reached. Please try again.")
-
-    if resp.status_code == 404 or resp.status_code == 410:
-        summary = {"configured": True, "state": "none", "entitled": False, "productId": data.productId}
-    elif resp.status_code != 200:
-        logger.error(f"Play API HTTP {resp.status_code}: {resp.text[:300]}")
-        raise HTTPException(status_code=502, detail="Google Play returned an error. Please try again.")
-    else:
-        summary = _summarize_play_subscription(data.productId, resp.json())
-
-    try:
-        await db.subscriptions.update_one(
-            {"user_id": current_user.id, "productId": summary["productId"]},
-            {"$set": {**summary, "user_id": current_user.id, "checked_at": datetime.now(timezone.utc)}},
-            upsert=True,
-        )
-    except Exception as e:
-        logger.error(f"subscriptions write failed: {e}")
-    return summary
 
 
 ACTIVATION_TOOL_HTML = """<!DOCTYPE html>
@@ -1788,7 +1651,6 @@ async def startup():
         "deleted_at", expireAfterSeconds=DELETION_RECORD_RETENTION_DAYS * 24 * 3600
     )
     await db.deletion_attempts.create_index("created_at", expireAfterSeconds=DELETION_ATTEMPT_WINDOW_MINUTES * 60)
-    await db.subscriptions.create_index([("user_id", 1), ("productId", 1)], unique=True)
     await db.email_verifications.create_index("token_hash", unique=True)
     # The unique token is what makes a replayed purchase impossible to double-credit.
     await db.credit_purchases.create_index("purchase_token", unique=True)

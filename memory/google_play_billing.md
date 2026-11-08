@@ -1,3 +1,6 @@
+> **Note (2026-11):** this app no longer sells subscriptions. It sells consumable credit
+> packs; see docs/SELF-HOSTING.md. Subscription-specific steps below are historical.
+
 # Google Play Billing — direct integration (no RevenueCat)
 
 User explicitly refused RevenueCat. Subscriptions run through Google Play Billing
@@ -11,8 +14,9 @@ in this app at all.
   on the paywall so a reinstalled subscriber can recover access).
 
 ## Product IDs (must match Google Play Console exactly)
-- `premium_monthly` — subscription, monthly base plan
-- `premium_yearly` — subscription, yearly base plan
+- `credits_10` — managed (consumable) product, 10 analyses, PHP 99
+- `credits_30` — managed (consumable) product, 30 analyses, PHP 249
+- `credits_100` — managed (consumable) product, 100 analyses, PHP 699
 Defined in `/app/frontend/src/billing/products.ts`. NEVER rename after shipping.
 
 ## Code map
@@ -35,7 +39,7 @@ Defined in `/app/frontend/src/billing/products.ts`. NEVER rename after shipping.
 - `app.json`: `expo-iap` config plugin added (it injects `com.android.vending.BILLING`).
 
 ## What the USER must still do in Google Play Console
-1. Monetize → Products → Subscriptions → create `premium_monthly` and `premium_yearly`,
+1. Monetize → Products → In-app products → create `credits_10`, `credits_30` and `credits_100` as MANAGED products,
    each with an ACTIVE base plan (monthly / yearly) and a price. Activate the products.
 2. Upload a signed AAB to at least the internal-testing track (products stay invisible
    to the app until a build is on a track).

@@ -57,6 +57,6 @@ only the notification is skipped.
 
 1. **App content → Data safety → Account deletion**: set the URL above, tick "users can request account deletion", and update the data-collection answers (name, email, photos *transmitted but not stored*, purchase history).
 2. **App content → Privacy policy**: set `https://<backend>/api/privacy-policy` (or wherever you host the same text). Store listing → set the same policy URL.
-3. **Monetize → Subscriptions**: keep `premium_monthly` / `premium_yearly`; if you want the 7-day free trial, add a *free-trial offer* to each base plan and put its offer id in `PLAY_TRIAL_OFFER_IDS`. Enable grace period / account hold under *Monetization setup* if desired.
+3. **Monetize → In-app products**: the app now sells consumable credit packs (`credits_10`/`credits_30`/`credits_100`), not subscriptions. Deactivate any old `premium_monthly` / `premium_yearly` subscription so nobody can still buy it. Credit packs are one-off purchases, so free trials, grace periods and account holds no longer apply.
 4. For server-side verification: Google Cloud → create a service account → Play Console → Users and permissions → invite it with *View financial data* + *Manage orders and subscriptions* → paste its JSON key into `PLAY_SERVICE_ACCOUNT_JSON`.
 5. Upload the v1.1.3 AAB (versionCode 124 — 123 was already consumed by the patched v1.1.2 bundle), signed with `ai-dermatologist-release.keystore`.
