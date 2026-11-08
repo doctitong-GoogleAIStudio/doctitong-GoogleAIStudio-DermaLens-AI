@@ -344,6 +344,69 @@ nothing to migrate, and nothing lost by switching hosts.
 
 ---
 
+## Google Play subscription verification
+
+Without this the backend cannot tell a subscriber from a free user: Google Play
+is only queryable with a purchase token, which only the app holds, so the server
+depends on the app reporting it to `POST /api/billing/subscription`. Until it is
+configured, `/api/analyze` is bounded only by `ANALYSES_PER_HOUR` and
+`ANALYSES_PER_MONTH`, which apply to everyone equally.
+
+**1. Create a service account.** In the Google Cloud project linked to your Play
+Console, create a service account, then create a JSON key for it and download
+that key.
+
+**2. Grant it Play access.** Play Console → **Users and permissions** → invite
+the service account's email → grant **View financial data, orders and
+subscriptions** for your app. Permissions can take up to 24 hours to apply.
+
+**3. Install the key.** Either paste the JSON inline, or put the file on the
+server and point at it:
+
+```bash
+# backend/.env
+PLAY_SERVICE_ACCOUNT_JSON=/home/dermalens/play-service-account.json
+ANDROID_PACKAGE_NAME=com.aivicventures.dermalensai.app
+```
+
+`ANDROID_PACKAGE_NAME` must equal `android.package` in `frontend/app.json`, or
+every lookup queries a different app and returns 404. Keep the key file readable
+only by the service account user (`chmod 600`), and out of version control.
+
+```bash
+docker compose up -d --build backend
+curl -s https://api.aivicventures.com/api/health
+```
+
+**4. Check it works** by subscribing on a test account and watching the app call
+`/api/billing/subscription`. A configured server answers with the Play state; an
+unconfigured one answers `{"configured": false}`.
+
+### Turning on the free-tier gate
+
+`FREE_ANALYSES` is *reported* to the app but not enforced by the server, so a
+modified client can ignore it. `ENFORCE_FREE_TIER=true` enforces it — but only
+turn it on once step 4 is confirmed, because an account the server has no
+subscription record for looks identical to a free user.
+
+While it is `false`, the backend logs a line for every request enforcement would
+have refused:
+
+```
+free-tier: would block user=... lifetime=12 free=1 (enforce=False play_configured=True)
+```
+
+Watch those for a week. If they only name accounts you expect to be unpaid, turn
+it on. If paying subscribers appear, the app is not reporting purchases reliably
+and enabling it would have cut them off.
+
+Entitlement is read from what the app last reported: a record whose `expiryTime`
+has passed counts as lapsed, an unparseable expiry keeps access rather than
+revoking it over a formatting problem, and a database error never downgrades a
+paying user.
+
+---
+
 ## Email
 
 Only admin notifications are sent: device-activation requests and

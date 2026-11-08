@@ -63,6 +63,12 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # plan costs more, and re-measure with scripts/measure-gemini-cost.py when the
 # model changes. Set to 0 for no monthly ceiling.
 ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "100"))
+# Enforce FREE_ANALYSES server-side for accounts with no active Play subscription.
+# Off by default and deliberately so: the server only learns about a subscription
+# when the app reports its purchase token to /api/billing/subscription, so turning
+# this on before the app reliably does that would lock out paying users. Watch the
+# "would block" lines in the log first, then enable.
+ENFORCE_FREE_TIER = os.getenv("ENFORCE_FREE_TIER", "false").strip().lower() in ("1", "true", "yes")
 
 # Outbound email (admin notifications only) is handled by mailer.py: SMTP or the
 # Resend API, whichever is configured. Leave it unconfigured to disable email —
@@ -505,6 +511,49 @@ async def _log_analysis(principal: Principal, image_count: int, started: float, 
         logger.error(f"analysis_logs write failed: {e}")
 
 
+async def current_entitlement(user_id: str) -> dict:
+    """Whether this account currently holds a paid entitlement, per the last
+    Google Play check the app reported.
+
+    Play is only reachable with a purchase token, which only the app has, so the
+    server cannot look this up on its own — it reads what /api/billing/subscription
+    last wrote. A record whose expiryTime has passed is treated as lapsed: the app
+    stopped re-verifying, so we must not keep granting access on its word.
+    """
+    result = {"entitled": False, "state": "none", "productId": None,
+              "expiryTime": None, "stale": False,
+              "verification_configured": bool(PLAY_SERVICE_ACCOUNT_JSON.strip())}
+    try:
+        cursor = db.subscriptions.find({"user_id": user_id, "entitled": True})
+        async for sub in cursor:
+            expiry = sub.get("expiryTime")
+            if expiry:
+                try:
+                    when = datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
+                    if when.tzinfo is None:
+                        when = when.replace(tzinfo=timezone.utc)
+                    if when <= datetime.now(timezone.utc):
+                        continue  # lapsed
+                except ValueError:
+                    # Unparseable expiry: trust the entitled flag rather than
+                    # revoking access over a formatting problem.
+                    pass
+            checked = sub.get("checked_at")
+            result.update({
+                "entitled": True,
+                "state": sub.get("state", "active"),
+                "productId": sub.get("productId"),
+                "expiryTime": expiry,
+                "stale": bool(checked and (datetime.now(timezone.utc) - checked).days > 7),
+            })
+            return result
+    except Exception as e:
+        # A database problem must not silently downgrade a paying user.
+        logger.error(f"entitlement lookup failed for {user_id}: {e}")
+        result["lookup_failed"] = True
+    return result
+
+
 @api_router.post("/analyze")
 async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_principal)):
     started = time.monotonic()
@@ -518,6 +567,33 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
             status_code=429,
             detail=f"You have reached the limit of {ANALYSES_PER_HOUR} analyses per hour. Please try again later.",
         )
+
+    # Free-tier gate. Only meaningful for account principals: an activated device
+    # paid offline and is not subject to it.
+    if principal.kind == "user":
+        ent = await current_entitlement(principal.id)
+        if not ent["entitled"]:
+            lifetime = await db.analysis_logs.count_documents(
+                {"user_id": principal.id, "status": 200}
+            )
+            if lifetime >= FREE_ANALYSES:
+                if ENFORCE_FREE_TIER and ent["verification_configured"] and not ent.get("lookup_failed"):
+                    raise HTTPException(
+                        status_code=402,
+                        detail=(
+                            f"You have used your {FREE_ANALYSES} free "
+                            f"analys{'is' if FREE_ANALYSES == 1 else 'es'}. "
+                            "Subscribe to continue."
+                        ),
+                    )
+                # Dry run: record what enforcement WOULD have done, so the effect
+                # can be measured before it is switched on.
+                logger.info(
+                    "free-tier: would block user=%s lifetime=%d free=%d "
+                    "(enforce=%s play_configured=%s)",
+                    principal.id, lifetime, FREE_ANALYSES,
+                    ENFORCE_FREE_TIER, ent["verification_configured"],
+                )
 
     # Monthly ceiling. This is what bounds the worst case: without it the hourly
     # limit alone still permits ~7,200 analyses a month from one account, which
@@ -967,9 +1043,13 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
     this_month = await db.analysis_logs.count_documents(
         {"user_id": current_user.id, "status": 200, "created_at": {"$gte": month_start}}
     )
+    ent = await current_entitlement(current_user.id)
     return {
         "analyses_used": used,
         "free_analyses": FREE_ANALYSES,
+        "entitled": ent["entitled"],
+        "subscription_state": ent["state"],
+        "free_tier_enforced": ENFORCE_FREE_TIER and ent["verification_configured"],
         # 0 means no monthly ceiling is configured.
         "monthly_used": this_month,
         "monthly_limit": ANALYSES_PER_MONTH,
