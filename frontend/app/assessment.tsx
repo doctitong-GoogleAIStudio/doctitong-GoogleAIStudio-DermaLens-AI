@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
-import { useSubscription } from "@/src/billing";
+import { useCredits } from "@/src/billing";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 const RECOMMENDED_VIEWS = [
@@ -19,7 +19,7 @@ export default function Assessment() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { canAnalyze } = useSubscription();
+  const { canAnalyze } = useCredits();
 
   const go = (mode: "quick" | "enhanced", action?: "camera" | "upload") => {
     if (!canAnalyze) {

@@ -14,7 +14,7 @@ import { ClinicalHistorySheet } from "@/src/components/ClinicalHistorySheet";
 import { ReconnectSheet } from "@/src/components/ReconnectSheet";
 import { useAuth } from "@/src/auth";
 import { analyzeImages } from "@/src/analysis";
-import { useSubscription } from "@/src/billing";
+import { useCredits } from "@/src/billing";
 import { useAddHistory, useUpdateHistory, readHistory } from "@/src/history";
 import { makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { HISTORY_FIELDS, type AssessmentMode, type ClinicalHistory, type HistoryItem } from "@/src/types";
@@ -96,7 +96,7 @@ export default function Capture() {
   const [permission, requestPermission] = useCameraPermissions();
   const addHistory = useAddHistory();
   const updateHistory = useUpdateHistory();
-  const { canAnalyze, countAnalysis } = useSubscription();
+  const { canAnalyze, countAnalysis } = useCredits();
   const { needsReconnect } = useAuth();
 
   const [shots, setShots] = useState<Shot[]>([]);

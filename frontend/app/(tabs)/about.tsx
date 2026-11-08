@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
-import { describeSubscription, useSubscription } from "@/src/billing";
+import { describeCredits, useCredits } from "@/src/billing";
 import { privacyPolicyUrl } from "@/src/api";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
@@ -40,16 +40,11 @@ export default function About() {
   const appName = Constants.expoConfig?.name ?? "DermaLens AI";
   const appVersion = Constants.expoConfig?.version ?? "";
   const router = useRouter();
-  const { available: billingAvailable, isSubscribed, status, activePlan, freeLeft } = useSubscription();
+  const { available: billingAvailable, credits, freeLeft } = useCredits();
   const policyUrl = privacyPolicyUrl();
 
-  const planValue = isSubscribed
-    ? describeSubscription(status, activePlan).label
-    : billingAvailable
-      ? status === "expired"
-        ? "Expired"
-        : `${freeLeft} free analysis left`
-      : "Unlimited on this device";
+  const plan = describeCredits({ credits, freeLeft, available: billingAvailable });
+  const planValue = plan.label;
 
   return (
     <View style={styles.root}>
@@ -101,17 +96,17 @@ export default function About() {
         <Text style={styles.groupLabel}>Your plan</Text>
         <View style={styles.group}>
           <Row
-            icon={isSubscribed ? "shield-checkmark-outline" : "sparkles-outline"}
-            label={isSubscribed ? `Premium${activePlan ? ` · ${activePlan.title}` : ""}` : "Free"}
+            icon={credits > 0 ? "flash-outline" : "sparkles-outline"}
+            label="Analysis credits"
             value={planValue}
             testID="about-plan"
           />
-          {billingAvailable && !isSubscribed && (
+          {billingAvailable && (
             <>
               <View style={styles.divider} />
               <Row
                 icon="arrow-up-circle-outline"
-                label="See premium plans"
+                label="Buy credits"
                 onPress={() => router.push("/paywall")}
                 testID="about-see-plans"
               />

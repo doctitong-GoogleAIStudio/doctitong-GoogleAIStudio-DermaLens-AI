@@ -5,18 +5,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
-import { useSubscription, type PlanKey } from "@/src/billing";
+import { useCredits } from "@/src/billing";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
 const BENEFITS = [
-  "Unlimited AI skin analyses",
   "Quick and Enhanced assessments",
   "Multi-view photos + clinical history",
   "PDF reports for every scan",
   "Your full scan history on this phone",
+  "Credits never expire",
 ];
 
-export default function Paywall() {
+export default function BuyCredits() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -24,23 +24,26 @@ export default function Paywall() {
   const {
     available,
     connected,
-    isSubscribed,
-    plans,
-    loadingPlans,
+    credits,
+    freeLeft,
+    packs,
+    loadingPacks,
     isPurchasing,
     error,
     buy,
+    restore,
     refresh,
     clearError,
-    freeLeft,
-    openManage,
-  } = useSubscription();
-  const [selected, setSelected] = useState<PlanKey>("yearly");
+  } = useCredits();
+  const [selected, setSelected] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const chosen = selected ?? packs[packs.length - 1]?.id ?? null;
 
   const onRefresh = async () => {
     setRefreshing(true);
     clearError();
+    await restore();
     await refresh();
     setRefreshing(false);
   };
@@ -55,7 +58,7 @@ export default function Paywall() {
         >
           <Ionicons name="close" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Go Premium</Text>
+        <Text style={styles.headerTitle}>Buy Credits</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -65,19 +68,17 @@ export default function Paywall() {
       >
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <Ionicons name="sparkles" size={30} color={colors.brandPrimary} />
+            <Ionicons name="flash" size={30} color={colors.brandPrimary} />
           </View>
           <Text style={styles.title}>
-            {isSubscribed
-              ? "You're subscribed"
-              : freeLeft > 0
-                ? "Unlimited AI skin analyses"
-                : "Your free analysis has been used"}
+            {credits > 0 ? `${credits} credit${credits === 1 ? "" : "s"} left` : "Out of credits"}
           </Text>
           <Text style={styles.subtitle}>
-            {isSubscribed
-              ? "Your subscription is active. Enjoy unlimited AI skin analyses."
-              : "Subscribe to keep analyzing skin lesions with AI, as often as you need."}
+            {credits > 0
+              ? "One credit runs one AI analysis. Top up whenever you need more."
+              : freeLeft > 0
+                ? "Your free analysis is still available. Buy credits for more."
+                : "One credit runs one AI analysis. They never expire."}
           </Text>
         </View>
 
@@ -93,89 +94,79 @@ export default function Paywall() {
         {!available ? (
           <View style={styles.notice} testID="paywall-unavailable">
             <Text style={styles.noticeText}>
-              Subscriptions are purchased through Google Play, so they are only available in the Android app. Analyses
-              are not limited here.
+              Purchases are only available in the Android app from Google Play. Analyses are not limited here.
             </Text>
           </View>
-        ) : isSubscribed ? (
-          <View style={styles.notice} testID="paywall-active">
-            <Text style={styles.noticeText}>
-              Manage or cancel your plan any time in Google Play → Payments & subscriptions.
-            </Text>
-            <Button
-              label="Manage Google Play Subscription"
-              variant="secondary"
-              onPress={openManage}
-              testID="paywall-manage-subscription"
-              style={{ marginTop: spacing.md }}
-            />
-          </View>
-        ) : loadingPlans || !connected ? (
-          <View style={styles.loading} testID="paywall-loading">
+        ) : loadingPacks || !connected ? (
+          <View style={styles.loading}>
             <ActivityIndicator color={colors.brandPrimary} />
-            <Text style={styles.noticeText}>Loading plans from Google Play…</Text>
+            <Text style={styles.noticeText}>Loading credit packs…</Text>
           </View>
-        ) : plans.length === 0 ? (
-          <View style={styles.notice} testID="paywall-empty">
+        ) : packs.length === 0 ? (
+          <View style={styles.notice}>
             <Text style={styles.noticeText}>
-              Subscription options are unavailable right now. Please try again later.
+              Credit packs could not be loaded from Google Play. Check your connection and try again.
             </Text>
           </View>
         ) : (
-          <View testID="paywall-plans">
-            {plans.map((p) => {
-              const active = selected === p.plan;
+          <>
+            {packs.map((p) => {
+              const active = p.id === chosen;
               return (
                 <Pressable
                   key={p.id}
-                  onPress={() => setSelected(p.plan)}
-                  style={[styles.plan, active && { borderColor: colors.brandPrimary, borderWidth: 2 }]}
-                  testID={`plan-${p.plan}`}
+                  onPress={() => setSelected(p.id)}
+                  testID={`pack-${p.id}`}
+                  style={[
+                    styles.plan,
+                    active && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary },
+                  ]}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.planTitle}>{p.title}</Text>
-                    <Text style={styles.planPeriod}>{p.period}</Text>
-                  </View>
-                  <Text style={styles.planPrice}>{p.price}</Text>
                   <Ionicons
                     name={active ? "radio-button-on" : "radio-button-off"}
                     size={22}
-                    color={active ? colors.brandPrimary : colors.borderStrong}
+                    color={active ? colors.brandPrimary : colors.muted}
                   />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planTitle}>
+                      {p.credits} analys{p.credits === 1 ? "is" : "es"}
+                    </Text>
+                    <Text style={styles.planPeriod}>Never expires</Text>
+                  </View>
+                  <Text style={styles.planPrice}>{p.price || "—"}</Text>
                 </Pressable>
               );
             })}
 
             <Button
-              label={`Subscribe ${selected === "monthly" ? "Monthly" : "Yearly"}`}
-              onPress={() => buy(selected)}
+              label={isPurchasing ? "Opening Google Play…" : "Buy credits"}
+              onPress={() => {
+                if (chosen) void buy(chosen);
+              }}
               loading={isPurchasing}
-              testID="paywall-subscribe"
-              style={{ marginTop: spacing.lg }}
+              disabled={isPurchasing || !chosen}
+              testID="paywall-buy"
             />
+
+            <Pressable onPress={onRefresh} disabled={refreshing} style={{ marginTop: spacing.lg }}>
+              <Text style={styles.fine}>
+                {refreshing ? "Checking…" : "Already paid? Tap to restore your purchase"}
+              </Text>
+            </Pressable>
+
             <Text style={styles.fine}>
-              Billed through your Google Play account and renews automatically until cancelled. Cancel any time in
-              Google Play.
+              Payment is charged to your Google Play account. Credits are added to your DermaLens
+              account and never expire. One credit is used per completed analysis — if an analysis
+              fails, the credit is returned.
             </Text>
-          </View>
+          </>
         )}
 
-        {!!error && (
+        {error ? (
           <Text style={styles.error} testID="paywall-error">
             {error}
           </Text>
-        )}
-
-        {available && !isSubscribed && (
-          <Button
-            label="Already subscribed? Refresh"
-            variant="ghost"
-            loading={refreshing}
-            onPress={onRefresh}
-            testID="paywall-refresh"
-            style={{ marginTop: spacing.md }}
-          />
-        )}
+        ) : null}
       </ScrollView>
     </View>
   );

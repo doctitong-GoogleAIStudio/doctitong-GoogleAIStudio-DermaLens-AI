@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { View, Text, ScrollView, Pressable, TextInput, Alert, Linking, Platform } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useRouter } from "expo-router";
@@ -7,18 +7,17 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { Button } from "@/src/components/Button";
 import { useAuth } from "@/src/auth";
-import { describeSubscription, useSubscription } from "@/src/billing";
+import { describeCredits, useCredits } from "@/src/billing";
 import { accountDeletionPageUrl, privacyPolicyUrl } from "@/src/api";
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 
-const PLAY_SUBSCRIPTIONS_URL = "https://play.google.com/store/account/subscriptions";
 
 const DELETE_CONFIRM_TITLE = "Delete your account?";
 const DELETE_CONFIRM_MESSAGE =
   "Are you sure you want to permanently delete your DermaLens AI account? Your account and associated personal data will be deleted, subject to any information that must be retained for legal, security, billing, fraud-prevention, or regulatory purposes.";
 
-const SUBSCRIPTION_WARNING =
-  "You still have a Google Play subscription for DermaLens AI. Deleting your account does NOT cancel it — Google Play will keep billing you until you cancel it there.";
+const CREDITS_WARNING =
+  "Any analysis credits left on this account will be lost. Credits are not refundable and cannot be moved to another account.";
 
 /** Native multi-button Alert, window.confirm on web (react-native-web has no Alert UI). */
 function confirmDialog(title: string, message: string, confirmLabel: string): Promise<boolean> {
@@ -42,8 +41,7 @@ export default function AccountAndSubscription() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, deleteAccount } = useAuth();
-  const { available: billingAvailable, isSubscribed, status, activePlan, freeLeft, openManage, refresh } =
-    useSubscription();
+  const { available: billingAvailable, credits, freeLeft, restore, refresh } = useCredits();
 
   const [password, setPassword] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -51,19 +49,13 @@ export default function AccountAndSubscription() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const description = describeSubscription(status, activePlan);
-  // Anything Google Play may still bill for — including a hold or pause,
-  // which resume billing once the user fixes the payment method.
-  const hasLiveSubscription =
-    isSubscribed || ["active", "trial", "cancelled", "grace_period", "on_hold", "paused", "pending"].includes(status);
-
-  const openPlaySubscriptions = useCallback(() => {
-    if (billingAvailable) openManage();
-    else Linking.openURL(PLAY_SUBSCRIPTIONS_URL).catch(() => {});
-  }, [billingAvailable, openManage]);
+  const description = describeCredits({ credits, freeLeft, available: billingAvailable });
 
   const onRefresh = async () => {
     setRefreshing(true);
+    // Also sweeps Google Play for a purchase that was paid for but never
+    // credited; "my credits are missing" is why someone taps this.
+    await restore();
     await refresh();
     setRefreshing(false);
   };
@@ -79,21 +71,14 @@ export default function AccountAndSubscription() {
       return;
     }
 
-    if (hasLiveSubscription) {
+    if (credits > 0) {
       const proceed = await new Promise<boolean>((resolve) => {
         if (Platform.OS === "web") {
-          resolve(window.confirm(`${SUBSCRIPTION_WARNING}\n\nContinue deleting the account anyway?`));
+          resolve(window.confirm(`${CREDITS_WARNING}\n\nContinue deleting the account anyway?`));
           return;
         }
-        Alert.alert("Cancel your subscription first", SUBSCRIPTION_WARNING, [
-          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-          {
-            text: "Manage subscription",
-            onPress: () => {
-              openPlaySubscriptions();
-              resolve(false);
-            },
-          },
+        Alert.alert("You still have credits", CREDITS_WARNING, [
+          { text: "Keep my account", style: "cancel", onPress: () => resolve(false) },
           { text: "Delete anyway", style: "destructive", onPress: () => resolve(true) },
         ]);
       });
@@ -107,9 +92,7 @@ export default function AccountAndSubscription() {
       await deleteAccount(password);
       notify(
         "Account deleted",
-        hasLiveSubscription
-          ? "Your DermaLens AI account and data have been deleted and you are signed out. Remember to cancel your subscription in Google Play — it is not cancelled automatically."
-          : "Your DermaLens AI account and the data on this phone have been deleted. You are now signed out.",
+        "Your DermaLens AI account and the data on this phone have been deleted. You are now signed out.",
       );
     } catch (e: any) {
       setError(e?.message ?? "Your account could not be deleted. Please try again.");
@@ -155,15 +138,11 @@ export default function AccountAndSubscription() {
           <View style={styles.card} testID="account-subscription">
             <View style={styles.planRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.planName}>
-                  {isSubscribed ? `Premium${activePlan ? ` · ${activePlan.title}` : ""}` : "Free"}
-                </Text>
+                <Text style={styles.planName}>Analysis credits</Text>
                 <Text style={styles.cardText}>
                   {billingAvailable
-                    ? isSubscribed || status !== "none"
-                      ? description.detail
-                      : `${freeLeft} free analysis left. Subscribe for unlimited analyses.`
-                    : "Subscriptions are purchased and managed in the Android app through Google Play."}
+                    ? description.detail
+                    : "Credits are purchased in the Android app through Google Play. Analyses are not limited here."}
                 </Text>
               </View>
               <View
@@ -171,7 +150,7 @@ export default function AccountAndSubscription() {
                   styles.pill,
                   description.warning
                     ? { backgroundColor: colors.warning }
-                    : isSubscribed
+                    : credits > 0
                       ? { backgroundColor: colors.brandPrimary }
                       : { backgroundColor: colors.surfaceTertiary },
                 ]}
@@ -180,7 +159,7 @@ export default function AccountAndSubscription() {
                 <Text
                   style={[
                     styles.pillText,
-                    { color: description.warning ? colors.onWarning : isSubscribed ? colors.onBrandPrimary : colors.muted },
+                    { color: description.warning ? colors.onWarning : credits > 0 ? colors.onBrandPrimary : colors.muted },
                   ]}
                 >
                   {billingAvailable ? description.label : "N/A"}
@@ -188,30 +167,18 @@ export default function AccountAndSubscription() {
               </View>
             </View>
 
-            {activePlan?.verified === false && isSubscribed && (
-              <Text style={styles.fine}>Status reported by Google Play on this device.</Text>
-            )}
-
             <Text style={styles.cardText}>
-              Google Play is the source of truth for your subscription — including free trials, cancellations that stay
-              active until the period ends, billing grace periods, account holds and restored purchases. Any change you
-              make in Google Play shows up here the next time the app opens.
+              One credit runs one AI analysis and credits never expire. If an analysis fails, the
+              credit is returned to your balance. Purchases are charged to your Google Play account.
             </Text>
 
-            <Button
-              label="Manage Google Play Subscription"
-              onPress={openPlaySubscriptions}
-              icon={<Ionicons name="logo-google-playstore" size={18} color={colors.onBrandPrimary} />}
-              testID="account-manage-subscription"
-              style={{ marginTop: spacing.lg }}
-            />
-            {billingAvailable && !isSubscribed && (
+            {billingAvailable && (
               <Button
-                label="See premium plans"
-                variant="secondary"
+                label="Buy credits"
                 onPress={() => router.push("/paywall")}
+                icon={<Ionicons name="flash" size={18} color={colors.onBrandPrimary} />}
                 testID="account-see-plans"
-                style={{ marginTop: spacing.md }}
+                style={{ marginTop: spacing.lg }}
               />
             )}
             {billingAvailable && (
@@ -224,22 +191,6 @@ export default function AccountAndSubscription() {
                 style={{ marginTop: spacing.md }}
               />
             )}
-          </View>
-
-          {/* ---- Cancel subscription ---- */}
-          <Text style={styles.groupLabel}>Cancel Subscription</Text>
-          <View style={styles.card} testID="account-cancel">
-            <Text style={styles.cardText}>
-              DermaLens AI subscriptions are managed by Google Play. Cancelling stops future renewal but does not
-              normally remove access until the end of the current paid or trial entitlement period.
-            </Text>
-            <Button
-              label="Manage / Cancel Subscription on Google Play"
-              variant="secondary"
-              onPress={openPlaySubscriptions}
-              testID="account-cancel-subscription"
-              style={{ marginTop: spacing.lg }}
-            />
           </View>
 
           {/* ---- Delete account ---- */}
@@ -256,12 +207,12 @@ export default function AccountAndSubscription() {
               described in the Privacy Policy.
             </Text>
 
-            {hasLiveSubscription && (
+            {credits > 0 && (
               <View style={styles.warnBox} testID="account-delete-subscription-warning">
-                <Ionicons name="card-outline" size={18} color={colors.onWarning} />
+                <Ionicons name="flash-outline" size={18} color={colors.onWarning} />
                 <Text style={styles.warnText}>
-                  Deleting your account does not cancel your Google Play subscription. Cancel it separately in Google Play,
-                  otherwise you will keep being charged.
+                  You still have {credits} unused credit{credits === 1 ? "" : "s"}. They will be lost
+                  and cannot be refunded or moved to another account.
                 </Text>
               </View>
             )}

@@ -189,37 +189,64 @@ export async function serverDeleteAccount(email: string, password: string): Prom
 // ---------------------------------------------------------------------------
 // Google Play subscription verification (optional, server-side)
 // ---------------------------------------------------------------------------
-export interface ServerSubscriptionStatus {
-  configured: boolean;
-  state?: "none" | "active" | "cancelled" | "grace_period" | "on_hold" | "paused" | "expired" | "pending" | "unknown";
-  entitled?: boolean;
-  productId?: string;
-  basePlanId?: string | null;
-  offerId?: string | null;
-  isTrial?: boolean;
-  autoRenewing?: boolean | null;
-  /** RFC 3339 timestamp from Google Play. */
-  expiryTime?: string | null;
-  autoResumeTime?: string | null;
-}
-
 /**
  * Asks the backend to look the purchase up in the Google Play Developer API.
  * Returns null when offline, not signed in, or the backend has no service
  * account configured — callers must then rely on the Billing Library alone.
  */
-export async function serverSubscriptionStatus(
+/**
+ * Hands a completed Google Play purchase to the backend, which verifies it with
+ * Google and grants the credits. Returns the new balance, or null if it could
+ * not be verified.
+ *
+ * The caller MUST NOT consume the purchase until this resolves successfully —
+ * a consumed token may no longer verify, which would cost the customer credits
+ * they paid for.
+ */
+export async function redeemCreditPurchase(
   productId: string,
   purchaseToken: string,
-): Promise<ServerSubscriptionStatus | null> {
+): Promise<{ balance: number; granted: boolean } | null> {
   const token = await getToken();
-  if (!token) return null;
+  if (!token || !BASE) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await postJson("/api/billing/subscription", { productId, purchaseToken }, token);
-    if (res.status !== 200 || res.json?.configured !== true) return null;
-    return res.json as ServerSubscriptionStatus;
+    const res = await fetch(apiUrl("/api/billing/credits/purchase"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ productId, purchaseToken }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json: any = await res.json().catch(() => null);
+    if (typeof json?.balance !== "number") return null;
+    return { balance: json.balance, granted: json.granted === true };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Current credit balance for the signed-in account, or null when unavailable. */
+export async function creditBalance(): Promise<number | null> {
+  const token = await getToken();
+  if (!token || !BASE) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(apiUrl("/api/billing/credits"), {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json: any = await res.json().catch(() => null);
+    return typeof json?.balance === "number" ? json.balance : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -229,6 +256,8 @@ export async function serverSubscriptionStatus(
 export interface ServerUsage {
   analysesUsed: number;
   freeAnalyses: number;
+  /** Credits the ACCOUNT holds. The server owns this number; the app only shows it. */
+  creditBalance: number;
 }
 
 /** Null when offline or not signed in to the backend — caller keeps its local count. */
@@ -245,7 +274,11 @@ export async function serverUsage(): Promise<ServerUsage | null> {
     if (!res.ok) return null;
     const json: any = await res.json().catch(() => null);
     if (typeof json?.analyses_used !== "number") return null;
-    return { analysesUsed: json.analyses_used, freeAnalyses: json.free_analyses ?? 1 };
+    return {
+      analysesUsed: json.analyses_used,
+      freeAnalyses: json.free_analyses ?? 1,
+      creditBalance: typeof json.credit_balance === "number" ? json.credit_balance : 0,
+    };
   } catch {
     return null;
   } finally {

@@ -6,7 +6,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 
 import { useTheme, makeStyles, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/auth";
-import { useSubscription } from "@/src/billing";
+import { useCredits } from "@/src/billing";
 import { useHistory, useDeleteHistory } from "@/src/history";
 import { HistoryCard } from "@/src/components/HistoryCard";
 import { ReconnectSheet } from "@/src/components/ReconnectSheet";
@@ -18,7 +18,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut, needsReconnect } = useAuth();
-  const { available: billingAvailable, isSubscribed, freeLeft, canAnalyze } = useSubscription();
+  const { available: billingAvailable, credits, freeLeft, canAnalyze } = useCredits();
   const { data: history = [], isLoading, refetch } = useHistory();
   const deleteItem = useDeleteHistory();
   const [refreshing, setRefreshing] = useState(false);
@@ -81,21 +81,20 @@ export default function Home() {
           style={styles.planBanner}
           onPress={() => router.push("/paywall")}
           testID="plan-banner"
-          disabled={isSubscribed}
         >
           <Ionicons
-            name={isSubscribed ? "shield-checkmark" : "sparkles-outline"}
+            name={credits > 0 ? "flash" : "sparkles-outline"}
             size={18}
             color={colors.brandPrimary}
           />
           <Text style={styles.planBannerText}>
-            {isSubscribed
-              ? "Premium active — unlimited analyses"
+            {credits > 0
+              ? `${credits} credit${credits === 1 ? "" : "s"} left — tap to buy more`
               : freeLeft > 0
-                ? `${freeLeft} free analysis left — tap to see plans`
-                : "Free analysis used — subscribe to continue"}
+                ? `${freeLeft} free analysis left — tap to see credit packs`
+                : "Free analysis used — tap to buy credits"}
           </Text>
-          {!isSubscribed && <Ionicons name="chevron-forward" size={18} color={colors.muted} />}
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
       )}
 

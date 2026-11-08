@@ -14,7 +14,7 @@ import { LogBox } from "react-native";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { AuthProvider, useAuth } from "@/src/auth";
-import { SubscriptionProvider } from "@/src/billing";
+import { CreditsProvider } from "@/src/billing";
 import { useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
@@ -89,10 +89,10 @@ export default function RootLayout() {
           <ErrorBoundary>
             <QueryClientProvider client={queryClient}>
               <AuthProvider>
-                <SubscriptionProvider>
+                <CreditsProvider>
                   <StatusBar style="auto" />
                   <Gate />
-                </SubscriptionProvider>
+                </CreditsProvider>
               </AuthProvider>
             </QueryClientProvider>
           </ErrorBoundary>
