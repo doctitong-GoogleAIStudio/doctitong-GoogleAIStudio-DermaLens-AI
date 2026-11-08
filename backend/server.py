@@ -58,11 +58,19 @@ ANALYSES_PER_HOUR = int(os.getenv("ANALYSES_PER_HOUR", "10"))
 FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # Hard ceiling on analyses per account per calendar month (UTC). Unlike FREE_ANALYSES
 # this IS enforced server-side, so a modified client cannot spend past it.
-# Sizing it: at ~$0.013 per analysis, 100/month is ~$1.30 of Gemini cost — roughly
-# 30% of what a $4.99 subscription nets after Google Play's cut. Raise it if your
-# plan costs more, and re-measure with scripts/measure-gemini-cost.py when the
-# model changes. Set to 0 for no monthly ceiling.
-ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "100"))
+#
+# The default is deliberately low. Until ENFORCE_FREE_TIER is on, this cap applies
+# to every account equally, subscribed or not, and signups are unlimited — so the
+# exposure is this figure multiplied by however many accounts someone cares to
+# create, not by your subscriber count. At ~$0.013 per analysis (measured with
+# scripts/measure-gemini-cost.py) 30/month is ~$0.39 per account, and still a scan
+# a day, which is far more than a real patient needs.
+#
+# Once Play verification works and the free tier is enforced, raise this: a high
+# ceiling is a subscriber benefit, not something to hand to anyone with an email
+# address. 100/month is ~$1.30, roughly 30% of what a $4.99 plan nets after
+# Google Play's cut. Set to 0 for no monthly ceiling.
+ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
 # Enforce FREE_ANALYSES server-side for accounts with no active Play subscription.
 # Off by default and deliberately so: the server only learns about a subscription
 # when the app reports its purchase token to /api/billing/subscription, so turning
