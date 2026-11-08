@@ -66,10 +66,11 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # scripts/measure-gemini-cost.py) 30/month is ~$0.39 per account, and still a scan
 # a day, which is far more than a real patient needs.
 #
-# Once Play verification works and the free tier is enforced, raise this: a high
-# ceiling is a subscriber benefit, not something to hand to anyone with an email
-# address. 100/month is ~$1.30, roughly 30% of what a $4.99 plan nets after
-# Google Play's cut. Set to 0 for no monthly ceiling.
+# 30 is also the chosen allowance for the $4.99/month plan: ~$0.39 of cost
+# against $4.24 net of Google Play's cut, so a 91% margin even at the cap.
+# Until ENFORCE_FREE_TIER is true, though, an unpaid account gets the same 30,
+# and the subscription grants nothing a free signup does not already have.
+# Set to 0 for no monthly ceiling.
 ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
 # Enforce FREE_ANALYSES server-side for accounts with no active Play subscription.
 # Off by default and deliberately so: the server only learns about a subscription
