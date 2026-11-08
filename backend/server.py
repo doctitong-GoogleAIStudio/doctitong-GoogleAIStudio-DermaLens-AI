@@ -264,6 +264,145 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> PublicUser:
     return public_user(doc)
 
 
+# Reject addresses whose domain cannot receive mail (gmail.con, made-up domains).
+# This is a typo-catcher, not proof of ownership — that is REQUIRE_EMAIL_VERIFICATION.
+VERIFY_EMAIL_DELIVERABILITY = os.getenv("VERIFY_EMAIL_DELIVERABILITY", "true").strip().lower() in ("1", "true", "yes")
+DNS_TIMEOUT_SECONDS = float(os.getenv("DNS_TIMEOUT_SECONDS", "4"))
+# Known-good domain used only to tell "this domain is fake" apart from "our DNS
+# is broken". If this fails to resolve, no negative answer can be trusted.
+DNS_CONTROL_DOMAIN = os.getenv("DNS_CONTROL_DOMAIN", "google.com")
+
+
+# Proof that the person owns the address. Requires a working mail provider, so
+# it stays off until one is configured — see ENFORCE_PAYWALL for the same pattern.
+REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").strip().lower() in ("1", "true", "yes")
+EMAIL_VERIFICATION_TTL_HOURS = int(os.getenv("EMAIL_VERIFICATION_TTL_HOURS", "48"))
+
+
+def _dns_lookup(resolver, name: str, rtype: str) -> Optional[bool]:
+    """True = records exist, False = authoritatively none, None = could not tell."""
+    import dns.resolver as _r
+    try:
+        resolver.resolve(name, rtype)
+        return True
+    except (_r.NoAnswer, _r.NXDOMAIN):
+        return False
+    except Exception:
+        # Timeout, SERVFAIL, no nameservers reachable — not an answer.
+        return None
+
+
+def _domain_accepts_mail_sync(domain: str) -> Optional[bool]:
+    """True / False / None(unknown). Blocking: callers use a thread."""
+    import dns.resolver as _r
+    resolver = _r.Resolver()
+    resolver.timeout = DNS_TIMEOUT_SECONDS
+    resolver.lifetime = DNS_TIMEOUT_SECONDS
+
+    mx = _dns_lookup(resolver, domain, "MX")
+    if mx is True:
+        return True
+    if mx is None:
+        return None
+    # No MX is not fatal: a domain with an A/AAAA record has an implicit MX.
+    for rtype in ("A", "AAAA"):
+        got = _dns_lookup(resolver, domain, rtype)
+        if got is True:
+            return True
+        if got is None:
+            return None
+    # Everything said "no". Only believe it if DNS itself is healthy, otherwise
+    # a resolver outage would reject every signup including valid ones.
+    if _dns_lookup(resolver, DNS_CONTROL_DOMAIN, "A") is not True:
+        return None
+    return False
+
+
+async def email_domain_is_deliverable(email: str) -> Optional[bool]:
+    if not VERIFY_EMAIL_DELIVERABILITY:
+        return None
+    domain = email.rpartition("@")[2].strip().lower()
+    if not domain:
+        return False
+    try:
+        return await run_in_threadpool(_domain_accepts_mail_sync, domain)
+    except Exception as e:
+        logger.error(f"deliverability check failed for {domain}: {e}")
+        return None
+
+
+def _hash_token(token: str) -> str:
+    """Verification tokens are stored hashed: a database copy must not be usable
+    to verify someone else's address."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def issue_email_verification(user_id: str, email: str, full_name: str) -> bool:
+    """Creates a single-use verification link and emails it. False when email is
+    not configured or sending failed — the caller decides how much that matters."""
+    import secrets
+    if not PUBLIC_BASE_URL:
+        logger.error("PUBLIC_BASE_URL is not set; cannot build a verification link")
+        return False
+    if not email_enabled():
+        return False
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFICATION_TTL_HOURS)
+    try:
+        # One live token per account: issuing a new one invalidates the old.
+        await db.email_verifications.delete_many({"user_id": user_id})
+        await db.email_verifications.insert_one({
+            "user_id": user_id,
+            "token_hash": _hash_token(token),
+            "expires_at": expires,
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception as e:
+        logger.error(f"could not store verification token for {user_id}: {e}")
+        return False
+
+    link = f"{PUBLIC_BASE_URL}/api/auth/verify-email?token={token}"
+    from html import escape
+    html = (
+        '<table role="presentation" width="100%" style="font-family:Arial,sans-serif;color:#111814">'
+        '<tr><td style="padding:24px">'
+        f'<h2 style="margin:0 0 8px">Confirm your email</h2>'
+        f'<p style="margin:0 0 16px;color:#5C7066">Hello {escape(full_name)}, please confirm this '
+        f'address to finish setting up your {escape(EMAIL_FROM_NAME)} account.</p>'
+        f'<p style="margin:0 0 24px"><a href="{escape(link)}" '
+        'style="background:#5C947A;color:#0A140F;text-decoration:none;padding:13px 22px;'
+        'border-radius:10px;font-weight:700;display:inline-block">Confirm my email</a></p>'
+        f'<p style="margin:0 0 8px;font-size:13px;color:#5C7066">Or paste this into your browser:<br/>'
+        f'<span style="font-family:monospace;font-size:12px">{escape(link)}</span></p>'
+        f'<p style="font-size:12px;color:#8E9E96;margin-top:24px">This link expires in '
+        f'{EMAIL_VERIFICATION_TTL_HOURS} hours. If you did not create this account, ignore this email.</p>'
+        '</td></tr></table>'
+    )
+    return await send_email([email], f"Confirm your {EMAIL_FROM_NAME} email", html)
+
+
+def _verify_result_page(title: str, message: str, ok: bool) -> HTMLResponse:
+    colour = "#5C947A" if ok else "#E05A6B"
+    from html import escape
+    return HTMLResponse(
+        status_code=200 if ok else 400,
+        content=(
+            '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>'
+            '<meta name="viewport" content="width=device-width,initial-scale=1"/>'
+            f'<title>{escape(title)}</title></head>'
+            '<body style="margin:0;background:#101412;color:#E6EFEB;font-family:-apple-system,'
+            'Segoe UI,Roboto,Arial,sans-serif;display:flex;align-items:center;'
+            'justify-content:center;min-height:100vh;padding:24px">'
+            '<div style="background:#181D1A;border:1px solid #2B3831;border-radius:20px;'
+            'max-width:420px;width:100%;padding:32px;text-align:center">'
+            f'<h1 style="font-size:20px;margin:0 0 10px;color:{colour}">{escape(title)}</h1>'
+            f'<p style="color:#8E9E96;margin:0;font-size:15px;line-height:1.5">{escape(message)}</p>'
+            '</div></body></html>'
+        ),
+    )
+
+
 async def hash_password(password: str) -> str:
     """bcrypt is CPU-bound and takes ~300ms at 12 rounds. Called directly from an
     async endpoint it blocks that worker entirely — every other request on it,
@@ -346,15 +485,29 @@ async def signup(data: SignupIn):
     existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
+
+    # None means we could not determine it (DNS trouble); let the signup through
+    # rather than turning a resolver outage into a total signup outage.
+    if await email_domain_is_deliverable(email) is False:
+        raise HTTPException(
+            status_code=400,
+            detail="That email address does not look deliverable. Please check it for typos.",
+        )
     user = {
         "full_name": data.full_name.strip(),
         "email": email,
         "password_hash": await hash_password(data.password),
         "created_at": datetime.now(timezone.utc),
+        # Written explicitly so accounts predating this feature (which have no
+        # such field) are grandfathered in rather than locked out.
+        "email_verified": False,
     }
     result = await db.users.insert_one(user)
     user["_id"] = result.inserted_id
     pu = public_user(user)
+    # Best effort: a mail failure must not cost the user their account. They can
+    # sign in and ask for another link.
+    await issue_email_verification(pu.id, email, user["full_name"])
     return TokenOut(access_token=create_access_token(pu.id), user=pu)
 
 
@@ -559,6 +712,48 @@ async def _log_analysis(principal: Principal, image_count: int, started: float, 
         logger.error(f"analysis_logs write failed: {e}")
 
 
+@api_router.get("/auth/verify-email", response_class=HTMLResponse)
+async def verify_email(token: str = ""):
+    """Target of the link in the confirmation email. Single use."""
+    if not token.strip():
+        return _verify_result_page("Link not valid", "This confirmation link is missing its token.", False)
+
+    record = await db.email_verifications.find_one({"token_hash": _hash_token(token.strip())})
+    if not record:
+        return _verify_result_page(
+            "Link not valid",
+            "This link has already been used, or a newer one was sent. Request a new one from the app.",
+            False,
+        )
+
+    expires = record.get("expires_at")
+    if expires and expires.replace(tzinfo=expires.tzinfo or timezone.utc) <= datetime.now(timezone.utc):
+        await db.email_verifications.delete_many({"user_id": record["user_id"]})
+        return _verify_result_page("Link expired", "Request a new confirmation email from the app.", False)
+
+    try:
+        await db.users.update_one({"_id": ObjectId(record["user_id"])},
+                                  {"$set": {"email_verified": True,
+                                            "email_verified_at": datetime.now(timezone.utc)}})
+    except Exception as e:
+        logger.error(f"could not mark {record['user_id']} verified: {e}")
+        return _verify_result_page("Something went wrong", "Please try the link again shortly.", False)
+
+    await db.email_verifications.delete_many({"user_id": record["user_id"]})
+    return _verify_result_page("Email confirmed", "You can go back to the app and carry on.", True)
+
+
+@api_router.post("/auth/resend-verification")
+async def resend_verification(current_user: PublicUser = Depends(get_current_user)):
+    user = await db.users.find_one({"_id": ObjectId(current_user.id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    if user.get("email_verified", True):
+        return {"status": "already_verified", "sent": False}
+    sent = await issue_email_verification(current_user.id, user["email"], user.get("full_name", ""))
+    return {"status": "sent" if sent else "unavailable", "sent": sent}
+
+
 async def current_entitlement(user_id: str) -> dict:
     """Whether this account currently holds a paid entitlement, per the last
     Google Play check the app reported.
@@ -615,6 +810,16 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
             status_code=429,
             detail=f"You have reached the limit of {ANALYSES_PER_HOUR} analyses per hour. Please try again later.",
         )
+
+    # Unconfirmed addresses cannot spend anything. This is what makes unlimited
+    # throwaway signups expensive to the abuser rather than to us.
+    if principal.kind == "user" and REQUIRE_EMAIL_VERIFICATION:
+        acct = await db.users.find_one({"_id": ObjectId(principal.id)}, {"email_verified": 1})
+        if acct is not None and not acct.get("email_verified", True):
+            raise HTTPException(
+                status_code=403,
+                detail="Please confirm your email address first. Check your inbox for the link.",
+            )
 
     # Free-tier gate. Only meaningful for account principals: an activated device
     # paid offline and is not subject to it.
@@ -1096,6 +1301,7 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
         "entitled": ent["entitled"],
         "subscription_state": ent["state"],
         "free_tier_enforced": ENFORCE_PAYWALL and ent["verification_configured"],
+        "email_verification_required": REQUIRE_EMAIL_VERIFICATION,
         # 0 means no monthly ceiling is configured.
         "monthly_used": this_month,
         "monthly_limit": ANALYSES_PER_MONTH,
@@ -1425,6 +1631,11 @@ async def startup():
     )
     await db.deletion_attempts.create_index("created_at", expireAfterSeconds=DELETION_ATTEMPT_WINDOW_MINUTES * 60)
     await db.subscriptions.create_index([("user_id", 1), ("productId", 1)], unique=True)
+    await db.email_verifications.create_index("token_hash", unique=True)
+    # Tokens clean themselves up; the TTL is a backstop for ones never used.
+    await db.email_verifications.create_index(
+        "expires_at", expireAfterSeconds=EMAIL_VERIFICATION_TTL_HOURS * 3600
+    )
 
 
 @app.on_event("shutdown")
