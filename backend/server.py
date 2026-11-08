@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 from starlette.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -59,7 +60,7 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # Hard ceiling on analyses per account per calendar month (UTC). Unlike FREE_ANALYSES
 # this IS enforced server-side, so a modified client cannot spend past it.
 #
-# The default is deliberately low. Until ENFORCE_FREE_TIER is on, this cap applies
+# The default is deliberately low. Until ENFORCE_PAYWALL is on, this cap applies
 # to every account equally, subscribed or not, and signups are unlimited — so the
 # exposure is this figure multiplied by however many accounts someone cares to
 # create, not by your subscriber count. At ~$0.013 per analysis (measured with
@@ -68,7 +69,7 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 #
 # 30 is also the chosen allowance for the $4.99/month plan: ~$0.39 of cost
 # against $4.24 net of Google Play's cut, so a 91% margin even at the cap.
-# Until ENFORCE_FREE_TIER is true, though, an unpaid account gets the same 30,
+# Until ENFORCE_PAYWALL is true, though, an unpaid account gets the same 30,
 # and the subscription grants nothing a free signup does not already have.
 # Set to 0 for no monthly ceiling.
 ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
@@ -77,7 +78,33 @@ ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
 # when the app reports its purchase token to /api/billing/subscription, so turning
 # this on before the app reliably does that would lock out paying users. Watch the
 # "would block" lines in the log first, then enable.
-ENFORCE_FREE_TIER = os.getenv("ENFORCE_FREE_TIER", "false").strip().lower() in ("1", "true", "yes")
+ENFORCE_PAYWALL = os.getenv("ENFORCE_PAYWALL", "false").strip().lower() in ("1", "true", "yes")
+
+# Google Play consumable products that grant analysis credits, as
+# "productId:credits" pairs. These ids must exist in Play Console as MANAGED
+# (consumable) products, and the credit counts must match what the store listing
+# promises — this mapping is what actually gets granted.
+def _parse_credit_products(raw: str) -> dict:
+    out = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        pid, _, n = pair.partition(":")
+        try:
+            credits = int(n)
+        except ValueError:
+            # logging is not configured this early; fail loudly instead of
+            # silently granting the wrong number of credits.
+            raise RuntimeError(f"CREDIT_PRODUCTS: malformed entry {pair!r}")
+        if pid.strip() and credits > 0:
+            out[pid.strip()] = credits
+    return out
+
+
+CREDIT_PRODUCTS = _parse_credit_products(
+    os.getenv("CREDIT_PRODUCTS", "credits_10:10,credits_30:30,credits_100:100")
+)
 
 # Outbound email (admin notifications only) is handled by mailer.py: SMTP or the
 # Resend API, whichever is configured. Leave it unconfigured to disable email —
@@ -237,6 +264,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> PublicUser:
     return public_user(doc)
 
 
+async def hash_password(password: str) -> str:
+    """bcrypt is CPU-bound and takes ~300ms at 12 rounds. Called directly from an
+    async endpoint it blocks that worker entirely — every other request on it,
+    including /api/health, waits. Run it on a thread."""
+    return await run_in_threadpool(pwd_context.hash, password)
+
+
+async def verify_password(password: str, password_hash: str) -> bool:
+    """See hash_password: same cost, same reason."""
+    return await run_in_threadpool(pwd_context.verify, password, password_hash)
+
+
 def month_window(now: Optional[datetime] = None) -> tuple:
     """First instant of the current UTC calendar month, and of the next one.
 
@@ -310,7 +349,7 @@ async def signup(data: SignupIn):
     user = {
         "full_name": data.full_name.strip(),
         "email": email,
-        "password_hash": pwd_context.hash(data.password),
+        "password_hash": await hash_password(data.password),
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user)
@@ -323,7 +362,7 @@ async def signup(data: SignupIn):
 async def login(data: LoginIn):
     email = normalized_email(str(data.email))
     user = await db.users.find_one({"email": email})
-    if not user or not pwd_context.verify(data.password, user["password_hash"]):
+    if not user or not await verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password.",
                             headers={"WWW-Authenticate": "Bearer"})
     pu = public_user(user)
@@ -586,7 +625,7 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
                 {"user_id": principal.id, "status": 200}
             )
             if lifetime >= FREE_ANALYSES:
-                if ENFORCE_FREE_TIER and ent["verification_configured"] and not ent.get("lookup_failed"):
+                if ENFORCE_PAYWALL and ent["verification_configured"] and not ent.get("lookup_failed"):
                     raise HTTPException(
                         status_code=402,
                         detail=(
@@ -601,7 +640,7 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
                     "free-tier: would block user=%s lifetime=%d free=%d "
                     "(enforce=%s play_configured=%s)",
                     principal.id, lifetime, FREE_ANALYSES,
-                    ENFORCE_FREE_TIER, ent["verification_configured"],
+                    ENFORCE_PAYWALL, ent["verification_configured"],
                 )
 
     # Monthly ceiling. This is what bounds the worst case: without it the hourly
@@ -778,8 +817,6 @@ class ReportIn(BaseModel):
 async def report_pdf(data: ReportIn, current_user: PublicUser = Depends(get_current_user)):
     """Render the analysis report HTML into a real PDF file."""
     from xhtml2pdf import pisa
-    from starlette.concurrency import run_in_threadpool
-
     buf = io.BytesIO()
     # pisa.CreatePDF is synchronous and CPU-bound: a report with the four photos
     # the app allows takes ~1s. Called directly from this async endpoint it would
@@ -889,7 +926,7 @@ async def delete_my_account(data: AccountDeleteIn, current_user: PublicUser = De
     user = await db.users.find_one({"_id": ObjectId(current_user.id)})
     if not user:
         raise HTTPException(status_code=404, detail="Account not found.")
-    if not pwd_context.verify(data.password, user["password_hash"]):
+    if not await verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="That password is incorrect.")
     return await _delete_user_account(user, source="app")
 
@@ -903,7 +940,7 @@ async def delete_account_by_credentials(data: AccountDeletionByCredentialsIn):
     if not user:
         await _record_failed_deletion_attempt(email)
         raise HTTPException(status_code=404, detail="No account exists for that email address.")
-    if not pwd_context.verify(data.password, user["password_hash"]):
+    if not await verify_password(data.password, user["password_hash"]):
         await _record_failed_deletion_attempt(email)
         raise HTTPException(status_code=401, detail="The email or password is incorrect.")
     return await _delete_user_account(user, source="web")
@@ -1058,7 +1095,7 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
         "free_analyses": FREE_ANALYSES,
         "entitled": ent["entitled"],
         "subscription_state": ent["state"],
-        "free_tier_enforced": ENFORCE_FREE_TIER and ent["verification_configured"],
+        "free_tier_enforced": ENFORCE_PAYWALL and ent["verification_configured"],
         # 0 means no monthly ceiling is configured.
         "monthly_used": this_month,
         "monthly_limit": ANALYSES_PER_MONTH,
@@ -1075,8 +1112,6 @@ async def verify_subscription(data: SubscriptionVerifyIn, current_user: PublicUs
     account is configured the app falls back to Billing Library status only."""
     if not PLAY_SERVICE_ACCOUNT_JSON.strip():
         return {"configured": False}
-
-    from starlette.concurrency import run_in_threadpool
 
     try:
         token = await run_in_threadpool(_play_access_token_sync)

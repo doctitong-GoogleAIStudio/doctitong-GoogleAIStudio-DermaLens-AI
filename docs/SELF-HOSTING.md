@@ -385,7 +385,7 @@ unconfigured one answers `{"configured": false}`.
 ### Turning on the free-tier gate
 
 `FREE_ANALYSES` is *reported* to the app but not enforced by the server, so a
-modified client can ignore it. `ENFORCE_FREE_TIER=true` enforces it — but only
+modified client can ignore it. `ENFORCE_PAYWALL=true` enforces it — but only
 turn it on once step 4 is confirmed, because an account the server has no
 subscription record for looks identical to a free user.
 
