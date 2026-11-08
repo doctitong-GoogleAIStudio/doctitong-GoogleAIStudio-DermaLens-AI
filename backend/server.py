@@ -25,6 +25,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from passlib.context import CryptContext
 from bson import ObjectId
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -696,7 +698,12 @@ GEMINI_RESPONSE_SCHEMA = {
 }
 
 
-async def _log_analysis(principal: Principal, image_count: int, started: float, status_code: int) -> None:
+async def _log_analysis(principal: Principal, image_count: int, started: float,
+                        status_code: int, refund_user_id: Optional[str] = None) -> None:
+    # Every failure path in analyze() logs before raising, so this is the one
+    # place that reliably sees them all. A reserved credit must come back.
+    if refund_user_id and status_code != 200:
+        await refund_credit(refund_user_id)
     try:
         await db.analysis_logs.insert_one({
             "principal_kind": principal.kind,
@@ -752,6 +759,155 @@ async def resend_verification(current_user: PublicUser = Depends(get_current_use
         return {"status": "already_verified", "sent": False}
     sent = await issue_email_verification(current_user.id, user["email"], user.get("full_name", ""))
     return {"status": "sent" if sent else "unavailable", "sent": sent}
+
+
+# ---------------------------------------------------------------------------
+# Analysis credits
+#
+# MongoDB here is a standalone node, so there are no multi-document
+# transactions. The design works without them:
+#   * credit_purchases has a unique index on purchase_token, so a replayed
+#     purchase can never be granted twice.
+#   * Granting is a two-step claim: atomically stamp credited_at on the purchase
+#     (only succeeds once), then increment the balance. If the increment fails
+#     after the claim the user is under-credited, which is logged loudly and can
+#     be repaired by hand — the opposite order would over-credit on a retry, and
+#     giving money away silently is the worse failure.
+#   * Spending is a single atomic find_one_and_update guarded by balance >= 1,
+#     so concurrent requests cannot drive the balance negative.
+# ---------------------------------------------------------------------------
+async def credit_balance(user_id: str) -> int:
+    doc = await db.credit_balances.find_one({"user_id": user_id})
+    return int((doc or {}).get("balance", 0))
+
+
+async def grant_credits(user_id: str, product_id: str, purchase_token: str,
+                        credits: int, order_id: Optional[str] = None) -> dict:
+    """Idempotent. Returns {granted, credits, balance, reason}."""
+    now = datetime.now(timezone.utc)
+    try:
+        await db.credit_purchases.insert_one({
+            "purchase_token": purchase_token,
+            "user_id": user_id,
+            "product_id": product_id,
+            "credits": credits,
+            "order_id": order_id,
+            "verified_at": now,
+            "credited_at": None,
+        })
+    except DuplicateKeyError:
+        pass  # seen before; the claim below decides whether it was ever credited
+
+    claimed = await db.credit_purchases.find_one_and_update(
+        {"purchase_token": purchase_token, "credited_at": None},
+        {"$set": {"credited_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        return {"granted": False, "credits": 0,
+                "balance": await credit_balance(user_id), "reason": "already_credited"}
+
+    try:
+        await db.credit_balances.update_one(
+            {"user_id": user_id},
+            {"$inc": {"balance": credits}, "$set": {"updated_at": now}},
+            upsert=True,
+        )
+    except Exception as e:
+        # Claimed but not credited: the user is owed. Loud, and recoverable by
+        # hand from credit_purchases.
+        logger.error("CREDITS OWED user=%s token=%s credits=%d — increment failed: %s",
+                     user_id, purchase_token, credits, e)
+        raise HTTPException(status_code=500,
+                            detail="Your purchase was received but could not be applied. Contact support.")
+
+    return {"granted": True, "credits": credits,
+            "balance": await credit_balance(user_id), "reason": "granted"}
+
+
+async def spend_credit(user_id: str) -> bool:
+    """Atomically takes one credit. False when the balance is empty."""
+    doc = await db.credit_balances.find_one_and_update(
+        {"user_id": user_id, "balance": {"$gte": 1}},
+        {"$inc": {"balance": -1}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return doc is not None
+
+
+async def refund_credit(user_id: str) -> None:
+    """Returns a credit reserved for an analysis that then failed. Never raises:
+    a refund failure must not replace the error the user actually hit."""
+    try:
+        await db.credit_balances.update_one(
+            {"user_id": user_id},
+            {"$inc": {"balance": 1}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error("CREDIT REFUND FAILED user=%s: %s", user_id, e)
+
+
+class CreditPurchaseIn(BaseModel):
+    productId: str
+    purchaseToken: str
+
+
+@api_router.get("/billing/credits")
+async def get_credits(current_user: PublicUser = Depends(get_current_user)):
+    return {"balance": await credit_balance(current_user.id),
+            "products": CREDIT_PRODUCTS}
+
+
+@api_router.post("/billing/credits/purchase")
+async def purchase_credits(data: CreditPurchaseIn,
+                           current_user: PublicUser = Depends(get_current_user)):
+    """Verifies a Google Play consumable purchase and grants its credits.
+
+    The app must call this BEFORE consuming the purchase locally: once consumed,
+    the token may no longer verify. Consume only after a successful response.
+    """
+    credits = CREDIT_PRODUCTS.get(data.productId)
+    if not credits:
+        raise HTTPException(status_code=400, detail="Unknown product.")
+    if not PLAY_SERVICE_ACCOUNT_JSON.strip():
+        raise HTTPException(status_code=503, detail="Purchases are not configured on this server.")
+
+    try:
+        token = await run_in_threadpool(_play_access_token_sync)
+    except Exception as e:
+        logger.error(f"Play service-account auth failed: {e}")
+        raise HTTPException(status_code=500, detail="Purchase verification is misconfigured.")
+
+    url = (
+        f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{ANDROID_PACKAGE_NAME}"
+        f"/purchases/products/{data.productId}/tokens/{data.purchaseToken}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=20) as hc:
+            resp = await hc.get(url, headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as e:
+        logger.error(f"Play API transport error: {e}")
+        raise HTTPException(status_code=502, detail="Google Play could not be reached. Please try again.")
+
+    if resp.status_code in (404, 410):
+        raise HTTPException(status_code=400, detail="That purchase could not be found.")
+    if resp.status_code != 200:
+        logger.error(f"Play products.get HTTP {resp.status_code}: {resp.text[:300]}")
+        raise HTTPException(status_code=502, detail="Google Play returned an error. Please try again.")
+
+    payload = resp.json()
+    # 0 = purchased, 1 = cancelled, 2 = pending.
+    if payload.get("purchaseState") != 0:
+        raise HTTPException(status_code=400, detail="That purchase is not complete.")
+
+    result = await grant_credits(
+        current_user.id, data.productId, data.purchaseToken, credits,
+        order_id=payload.get("orderId"),
+    )
+    logger.info("credits %s user=%s product=%s n=%d balance=%d",
+                result["reason"], current_user.id, data.productId, credits, result["balance"])
+    return result
 
 
 async def current_entitlement(user_id: str) -> dict:
@@ -823,30 +979,31 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
 
     # Free-tier gate. Only meaningful for account principals: an activated device
     # paid offline and is not subject to it.
+    spent_credit_for: Optional[str] = None
     if principal.kind == "user":
-        ent = await current_entitlement(principal.id)
-        if not ent["entitled"]:
-            lifetime = await db.analysis_logs.count_documents(
-                {"user_id": principal.id, "status": 200}
+        lifetime = await db.analysis_logs.count_documents(
+            {"user_id": principal.id, "status": 200}
+        )
+        if lifetime < FREE_ANALYSES:
+            pass  # still inside the free allowance; costs no credit
+        elif await spend_credit(principal.id):
+            # Reserved before calling Gemini so two concurrent requests cannot
+            # spend the same credit. _log_analysis returns it if this fails.
+            spent_credit_for = principal.id
+        elif ENFORCE_PAYWALL:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"You have used your {FREE_ANALYSES} free "
+                    f"analys{'is' if FREE_ANALYSES == 1 else 'es'} and have no credits left. "
+                    "Buy more credits to continue."
+                ),
             )
-            if lifetime >= FREE_ANALYSES:
-                if ENFORCE_PAYWALL and ent["verification_configured"] and not ent.get("lookup_failed"):
-                    raise HTTPException(
-                        status_code=402,
-                        detail=(
-                            f"You have used your {FREE_ANALYSES} free "
-                            f"analys{'is' if FREE_ANALYSES == 1 else 'es'}. "
-                            "Subscribe to continue."
-                        ),
-                    )
-                # Dry run: record what enforcement WOULD have done, so the effect
-                # can be measured before it is switched on.
-                logger.info(
-                    "free-tier: would block user=%s lifetime=%d free=%d "
-                    "(enforce=%s play_configured=%s)",
-                    principal.id, lifetime, FREE_ANALYSES,
-                    ENFORCE_PAYWALL, ent["verification_configured"],
-                )
+        else:
+            # Dry run: what enforcement would have refused, so the effect can be
+            # measured before switching it on.
+            logger.info("paywall: would block user=%s lifetime=%d free=%d balance=0",
+                        principal.id, lifetime, FREE_ANALYSES)
 
     # Monthly ceiling. This is what bounds the worst case: without it the hourly
     # limit alone still permits ~7,200 analyses a month from one account, which
@@ -867,7 +1024,7 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
 
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set in backend/.env")
-        await _log_analysis(principal, image_count, started, 500)
+        await _log_analysis(principal, image_count, started, 500, spent_credit_for)
         raise HTTPException(status_code=500, detail="AI service configuration error.")
 
     body = {
@@ -893,11 +1050,11 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
             )
     except httpx.TimeoutException:
         logger.error("Gemini request timed out")
-        await _log_analysis(principal, image_count, started, 504)
+        await _log_analysis(principal, image_count, started, 504, spent_credit_for)
         raise HTTPException(status_code=504, detail="The analysis took too long. Please try again.")
     except httpx.HTTPError as e:
         logger.error(f"Gemini transport error: {e}")
-        await _log_analysis(principal, image_count, started, 502)
+        await _log_analysis(principal, image_count, started, 502, spent_credit_for)
         raise HTTPException(status_code=502, detail="The AI service is unavailable. Please try again.")
 
     if resp.status_code != 200:
@@ -909,7 +1066,7 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
             code, detail = 429, "AI service is busy. Please try again shortly."
         else:
             code, detail = 502, "The AI service is unavailable. Please try again."
-        await _log_analysis(principal, image_count, started, code)
+        await _log_analysis(principal, image_count, started, code, spent_credit_for)
         raise HTTPException(status_code=code, detail=detail)
 
     try:
@@ -921,7 +1078,7 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
         result = _extract_json(text)
     except Exception:
         logger.error(f"Failed to parse Gemini response: {resp.text[:500]}")
-        await _log_analysis(principal, image_count, started, 502)
+        await _log_analysis(principal, image_count, started, 502, spent_credit_for)
         raise HTTPException(status_code=502, detail="The AI returned an invalid response. Please try again.")
 
     result.setdefault("assessmentPossible", True)
@@ -1302,6 +1459,7 @@ async def billing_usage(current_user: PublicUser = Depends(get_current_user)):
         "subscription_state": ent["state"],
         "free_tier_enforced": ENFORCE_PAYWALL and ent["verification_configured"],
         "email_verification_required": REQUIRE_EMAIL_VERIFICATION,
+        "credit_balance": await credit_balance(current_user.id),
         # 0 means no monthly ceiling is configured.
         "monthly_used": this_month,
         "monthly_limit": ANALYSES_PER_MONTH,
@@ -1632,6 +1790,10 @@ async def startup():
     await db.deletion_attempts.create_index("created_at", expireAfterSeconds=DELETION_ATTEMPT_WINDOW_MINUTES * 60)
     await db.subscriptions.create_index([("user_id", 1), ("productId", 1)], unique=True)
     await db.email_verifications.create_index("token_hash", unique=True)
+    # The unique token is what makes a replayed purchase impossible to double-credit.
+    await db.credit_purchases.create_index("purchase_token", unique=True)
+    await db.credit_purchases.create_index([("user_id", 1), ("verified_at", -1)])
+    await db.credit_balances.create_index("user_id", unique=True)
     # Tokens clean themselves up; the TTL is a backstop for ones never used.
     await db.email_verifications.create_index(
         "expires_at", expireAfterSeconds=EMAIL_VERIFICATION_TTL_HOURS * 3600
