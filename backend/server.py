@@ -69,10 +69,8 @@ FREE_ANALYSES = int(os.getenv("FREE_ANALYSES", "1"))
 # scripts/measure-gemini-cost.py) 30/month is ~$0.39 per account, and still a scan
 # a day, which is far more than a real patient needs.
 #
-# 30 is also the chosen allowance for the $4.99/month plan: ~$0.39 of cost
-# against $4.24 net of Google Play's cut, so a 91% margin even at the cap.
-# Until ENFORCE_PAYWALL is true, though, an unpaid account gets the same 30,
-# and the subscription grants nothing a free signup does not already have.
+# Analyses paid for with a credit are exempt (see analyze): this bounds free and
+# unpaid usage, not usage someone has already paid for.
 # Set to 0 for no monthly ceiling.
 ANALYSES_PER_MONTH = int(os.getenv("ANALYSES_PER_MONTH", "30"))
 # Enforce the paywall server-side: the free allowance first, then credits.
@@ -934,38 +932,30 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
                 detail="Please confirm your email address first. Check your inbox for the link.",
             )
 
-    # Free-tier gate. Only meaningful for account principals: an activated device
-    # paid offline and is not subject to it.
-    spent_credit_for: Optional[str] = None
+    # Work out how this analysis would be paid for WITHOUT charging yet. Every
+    # refusal below has to happen before a credit is taken, or the user loses it
+    # without getting an analysis.
+    #   "free"   — still inside the free allowance
+    #   "credit" — has a balance to spend
+    #   "none"   — neither
+    #   "device" — activated device, paid offline, not account-gated
+    mode = "device"
     if principal.kind == "user":
         lifetime = await db.analysis_logs.count_documents(
             {"user_id": principal.id, "status": 200}
         )
         if lifetime < FREE_ANALYSES:
-            pass  # still inside the free allowance; costs no credit
-        elif await spend_credit(principal.id):
-            # Reserved before calling Gemini so two concurrent requests cannot
-            # spend the same credit. _log_analysis returns it if this fails.
-            spent_credit_for = principal.id
-        elif ENFORCE_PAYWALL:
-            raise HTTPException(
-                status_code=402,
-                detail=(
-                    f"You have used your {FREE_ANALYSES} free "
-                    f"analys{'is' if FREE_ANALYSES == 1 else 'es'} and have no credits left. "
-                    "Buy more credits to continue."
-                ),
-            )
+            mode = "free"
+        elif await credit_balance(principal.id) > 0:
+            mode = "credit"
         else:
-            # Dry run: what enforcement would have refused, so the effect can be
-            # measured before switching it on.
-            logger.info("paywall: would block user=%s lifetime=%d free=%d balance=0",
-                        principal.id, lifetime, FREE_ANALYSES)
+            mode = "none"
 
-    # Monthly ceiling. This is what bounds the worst case: without it the hourly
-    # limit alone still permits ~7,200 analyses a month from one account, which
-    # costs far more in Gemini usage than any subscription brings in.
-    if ANALYSES_PER_MONTH > 0:
+    # Monthly ceiling — an abuse bound on usage nobody has paid for. Credits are
+    # deliberately exempt: someone who bought 100 of them is entitled to use
+    # them, and at ~90% margin their usage pays for itself. Applying the cap to
+    # paid analyses would refuse a customer the thing they just bought.
+    if ANALYSES_PER_MONTH > 0 and mode != "credit":
         month_start, month_end = month_window()
         this_month = await db.analysis_logs.count_documents(
             {field: principal.id, "status": 200, "created_at": {"$gte": month_start}}
@@ -978,6 +968,32 @@ async def analyze(data: AnalyzeIn, principal: Principal = Depends(analyze_princi
                     f"Your allowance resets on {month_end.strftime('%-d %B')}."
                 ),
             )
+
+    # Only now take payment. Nothing below this point refuses the request for a
+    # reason the caller could have been told about beforehand.
+    spent_credit_for: Optional[str] = None
+    if mode == "credit":
+        if await spend_credit(principal.id):
+            # Reserved before calling Gemini so two concurrent requests cannot
+            # spend the same credit. _log_analysis returns it if this fails.
+            spent_credit_for = principal.id
+        else:
+            # Lost a race with another request that spent the last credit.
+            mode = "none"
+    if mode == "none":
+        if ENFORCE_PAYWALL:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"You have used your {FREE_ANALYSES} free "
+                    f"analys{'is' if FREE_ANALYSES == 1 else 'es'} and have no credits left. "
+                    "Buy more credits to continue."
+                ),
+            )
+        # Dry run: what enforcement would have refused, so the effect can be
+        # measured before switching it on.
+        logger.info("paywall: would block user=%s lifetime=%d free=%d balance=0",
+                    principal.id, lifetime, FREE_ANALYSES)
 
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set in backend/.env")
